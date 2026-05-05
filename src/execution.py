@@ -10,6 +10,9 @@ from datetime import time
 class ParentOrder:
     """Large order to execute over a fixed intraday window."""
 
+    # Parent orders describe intent. Strategy classes will convert them into
+    # timestamped child orders while respecting remaining quantity and the
+    # participation cap.
     ticker: str
     side: str
     quantity: float

@@ -1,4 +1,9 @@
-"""Entry point for the smart execution backtester."""
+"""Entry point for incremental smart execution backtester development.
+
+The CLI exposes small phase-specific smoke checks while the full backtester is
+being built. This keeps each phase testable before the final orchestration code
+exists.
+"""
 
 from __future__ import annotations
 
@@ -48,6 +53,8 @@ def main() -> None:
     print(f"Data settings: period={backtester.period}, interval={backtester.interval}")
 
     if args.download_sample:
+        # Phase 1 smoke path: touches Yahoo Finance, writes raw/processed CSVs,
+        # and verifies the cleaned schema can be produced end to end.
         processed, raw_path, processed_path = load_and_save_intraday_data(
             ticker=args.ticker,
             period=args.period,
@@ -57,6 +64,8 @@ def main() -> None:
         print(f"Raw data: {raw_path}")
         print(f"Processed data: {processed_path}")
     elif args.feature_sample:
+        # Phase 2 smoke path: stays offline by reading a processed CSV and then
+        # validating the feature pipeline against saved sample data.
         input_path = Path(args.input_csv)
         data = pd.read_csv(input_path, index_col=0, parse_dates=True)
         featured = add_microstructure_features(data)

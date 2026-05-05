@@ -1,4 +1,9 @@
-"""Data loading utilities for intraday Yahoo Finance OHLCV data."""
+"""Data loading utilities for intraday Yahoo Finance OHLCV data.
+
+Yahoo Finance is used only as an OHLCV bar source. It does not provide bid,
+ask, depth, queue, or cancellation data, so downstream microstructure research
+must treat this dataset as proxy input rather than true order book data.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,9 @@ from pathlib import Path
 import pandas as pd
 
 
+# This is the canonical cleaned-data contract used by every later phase.
+# Keeping it explicit prevents feature, signal, and backtest code from relying
+# on Yahoo's raw column naming conventions.
 REQUIRED_COLUMNS = [
     "open",
     "high",
@@ -47,6 +55,8 @@ def download_raw_intraday_data(
 ) -> pd.DataFrame:
     """Download raw intraday Yahoo Finance data without project-specific cleaning."""
     yf = _get_yfinance()
+    # auto_adjust=False preserves Yahoo's reported OHLC values. For execution
+    # simulation we want the same raw price bars used to build synthetic fills.
     return yf.download(
         tickers=ticker,
         period=period,
@@ -63,9 +73,13 @@ def clean_intraday_data(raw: pd.DataFrame, ticker: str) -> pd.DataFrame:
         raise ValueError(f"No intraday data returned for {ticker}.")
 
     df = raw.copy()
+    # yfinance may return MultiIndex columns even for a single ticker depending
+    # on version and arguments. Collapse to the price-field level for one symbol.
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
+    # Normalize names once here so the rest of the project can assume lowercase
+    # snake_case columns regardless of Yahoo's output format.
     df.columns = [str(col).strip().lower().replace(" ", "_") for col in df.columns]
     rename_map = {
         "adj_close": "adj_close",
@@ -82,12 +96,17 @@ def clean_intraday_data(raw: pd.DataFrame, ticker: str) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing required Yahoo columns for {ticker}: {missing}")
 
+    # Bars without prices cannot support returns, spread proxies, or fills.
+    # Zero-volume bars are also excluded because participation and impact models
+    # divide by market volume later.
     df = df[ohlcv_cols].dropna(subset=["open", "high", "low", "close"])
     df = df[df["volume"].fillna(0) > 0]
     if df.empty:
         raise ValueError(f"No usable intraday bars after cleaning for {ticker}.")
 
     df = df.sort_index()
+    # These derived fields are intentionally created at the data layer because
+    # they are general bar metadata used by multiple later phases.
     df["returns"] = df["close"].pct_change()
     df["dollar_volume"] = df["close"] * df["volume"]
     df["date"] = df.index.date
@@ -107,6 +126,8 @@ def save_intraday_data(
 ) -> Path:
     """Save intraday data to CSV and return the output path."""
     data_dir.mkdir(parents=True, exist_ok=True)
+    # Include period and interval in the filename so short experiments can live
+    # next to the main 60d/5m dataset without overwriting it.
     filename = f"{ticker.upper()}_{period}_{interval}.csv"
     output_path = data_dir / filename
     df.to_csv(output_path, index=True)
@@ -121,6 +142,8 @@ def load_and_save_intraday_data(
     """Download, clean, and save raw and processed intraday data."""
     raw = download_raw_intraday_data(ticker=ticker, period=period, interval=interval)
     processed = clean_intraday_data(raw, ticker)
+    # Save both forms: raw files help debug data-provider changes, processed
+    # files are the reproducible inputs used by feature and signal research.
     raw_path = save_intraday_data(raw, ticker, period, interval, RAW_DATA_DIR)
     processed_path = save_intraday_data(processed, ticker, period, interval, PROCESSED_DATA_DIR)
     return processed, raw_path, processed_path
