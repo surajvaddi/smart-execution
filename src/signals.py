@@ -6,6 +6,20 @@ import numpy as np
 import pandas as pd
 
 
+DEFAULT_HORIZONS = [1, 3, 6, 12]
+
+DEFAULT_SIGNAL_COLUMNS = [
+    "ofi_proxy",
+    "momentum_3",
+    "reversal_3",
+    "volume_zscore",
+    "rolling_vol",
+    "spread_proxy",
+    "liquidity_score",
+    "alpha_signal",
+]
+
+
 def add_forward_returns(df: pd.DataFrame, horizons: list[int]) -> pd.DataFrame:
     """Add forward return targets for the requested bar horizons."""
     out = df.copy()
@@ -67,3 +81,36 @@ def decile_spread(df: pd.DataFrame, signal_col: str, target_col: str) -> float:
         return np.nan
 
     return by_decile.iloc[-1] - by_decile.iloc[0]
+
+
+def evaluate_signals(
+    df: pd.DataFrame,
+    signal_cols: list[str] | None = None,
+    horizons: list[int] | None = None,
+) -> pd.DataFrame:
+    """Evaluate each signal against each forward return horizon."""
+    signal_cols = signal_cols or DEFAULT_SIGNAL_COLUMNS
+    horizons = horizons or DEFAULT_HORIZONS
+
+    rows = []
+    for signal_col in signal_cols:
+        for horizon in horizons:
+            target_col = f"fwd_return_{horizon}"
+            valid = _valid_signal_target_data(df, signal_col, target_col)
+            rows.append(
+                {
+                    "signal": signal_col,
+                    "horizon": horizon,
+                    "target": target_col,
+                    "n_obs": len(valid),
+                    "information_coefficient": information_coefficient(
+                        df,
+                        signal_col,
+                        target_col,
+                    ),
+                    "hit_rate": hit_rate(df, signal_col, target_col),
+                    "decile_spread": decile_spread(df, signal_col, target_col),
+                }
+            )
+
+    return pd.DataFrame(rows)
