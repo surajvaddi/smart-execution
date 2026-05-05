@@ -76,6 +76,11 @@ def parse_args() -> argparse.Namespace:
         help="Generate a Phase 5 Adaptive child-order schedule for one parent order.",
     )
     parser.add_argument(
+        "--strategy-compare-sample",
+        action="store_true",
+        help="Compare Phase 5 child-order schedules for one parent order.",
+    )
+    parser.add_argument(
         "--orders-output-csv",
         default=None,
         help="Optional CSV path for --orders-sample parent orders.",
@@ -99,6 +104,11 @@ def parse_args() -> argparse.Namespace:
         "--adaptive-output-csv",
         default=None,
         help="Optional CSV path for --adaptive-sample child orders.",
+    )
+    parser.add_argument(
+        "--strategy-compare-output-csv",
+        default=None,
+        help="Optional CSV path for --strategy-compare-sample summary.",
     )
     parser.add_argument(
         "--input-csv",
@@ -180,6 +190,11 @@ def _default_adaptive_output_path(input_path: Path) -> Path:
     return Path("reports") / f"adaptive_child_orders_{input_path.stem}.csv"
 
 
+def _default_strategy_compare_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for strategy schedule comparison."""
+    return Path("reports") / f"strategy_schedule_comparison_{input_path.stem}.csv"
+
+
 def _write_signal_notes(
     output_path: Path,
     input_path: Path,
@@ -235,6 +250,40 @@ def _write_signal_notes(
         ]
     )
     output_path.write_text("\n".join(lines))
+
+
+def _strategy_schedule_summary(
+    strategy_name: str,
+    child_orders: pd.DataFrame,
+    order_quantity: float,
+    market_window: pd.DataFrame,
+) -> dict:
+    """Summarize one strategy schedule before transaction costs are modeled."""
+    if child_orders.empty:
+        return {
+            "strategy": strategy_name,
+            "child_orders": 0,
+            "filled_quantity": 0.0,
+            "fill_rate": 0.0,
+            "min_child_quantity": 0.0,
+            "max_child_quantity": 0.0,
+            "max_participation": 0.0,
+        }
+
+    participation = (
+        child_orders.set_index("timestamp")["quantity"]
+        / market_window.loc[child_orders["timestamp"], "volume"]
+    )
+    filled_quantity = child_orders["quantity"].sum()
+    return {
+        "strategy": strategy_name,
+        "child_orders": len(child_orders),
+        "filled_quantity": filled_quantity,
+        "fill_rate": filled_quantity / order_quantity,
+        "min_child_quantity": child_orders["quantity"].min(),
+        "max_child_quantity": child_orders["quantity"].max(),
+        "max_participation": participation.max(),
+    }
 
 
 def main() -> None:
@@ -453,6 +502,41 @@ def main() -> None:
         print(f"Max participation: {participation.max():,.6f}.")
         print(f"Saved Adaptive child orders to {output_path}.")
         print(child_orders.head(8).to_string(index=False))
+    elif args.strategy_compare_sample:
+        # Phase 5 comparison path: same parent order, same market data, all
+        # implemented strategies. This compares schedules only, not TCA quality.
+        input_path, data = _load_processed_csv(args.input_csv)
+        featured = add_microstructure_features(data)
+        order = generate_parent_orders(featured, max_orders_per_ticker=1)[0]
+        strategies = [TWAPStrategy(), VWAPStrategy(), POVStrategy(), AdaptiveStrategy()]
+        rows = []
+
+        for strategy in strategies:
+            strategy_data = featured if isinstance(strategy, AdaptiveStrategy) else data
+            child_orders = strategy.generate_child_orders(order, strategy_data)
+            market_window = strategy.market_window(order, strategy_data)
+            rows.append(
+                _strategy_schedule_summary(
+                    strategy_name=strategy.name,
+                    child_orders=child_orders,
+                    order_quantity=order.quantity,
+                    market_window=market_window,
+                )
+            )
+
+        comparison = pd.DataFrame(rows)
+        output_path = (
+            Path(args.strategy_compare_output_csv)
+            if args.strategy_compare_output_csv
+            else _default_strategy_compare_output_path(input_path)
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        comparison.to_csv(output_path, index=False)
+
+        print(f"Loaded {len(data):,} processed bars from {input_path}.")
+        print(f"Compared schedules for parent order {order.order_id}.")
+        print(f"Saved strategy schedule comparison to {output_path}.")
+        print(comparison.to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -462,6 +546,7 @@ def main() -> None:
         print("Phase 5 VWAP generation is available. Use --vwap-sample to test VWAP.")
         print("Phase 5 POV generation is available. Use --pov-sample to test POV.")
         print("Phase 5 Adaptive generation is available. Use --adaptive-sample to test Adaptive.")
+        print("Phase 5 strategy comparison is available. Use --strategy-compare-sample.")
 
 
 if __name__ == "__main__":

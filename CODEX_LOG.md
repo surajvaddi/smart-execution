@@ -99,3 +99,18 @@ Comments:
 - Added `parent_orders_to_frame()` to save generated parent orders as tabular research inputs.
 - Added `main.py --orders-sample` to generate parent orders from a processed CSV and save them under `reports/`.
 - Corrected intraday timestamp handling so Yahoo Finance UTC bars are converted to New York market time before deriving `date`, `time`, and `bar_index`.
+
+### Phase 5: Execution Strategies
+
+- Added shared child-order schema and validation in `src/strategies.py`.
+- Added common strategy helpers for selecting a parent order's market window and building child-order DataFrames.
+- Implemented TWAP child-order generation with equal quantity per bar and exact final quantity adjustment.
+- Added `main.py --twap-sample` and saved TWAP sample child orders under `reports/`.
+- Implemented VWAP child-order generation using the historical volume curve from Phase 2.
+- Added `main.py --vwap-sample` and saved VWAP sample child orders under `reports/`.
+- Implemented POV child-order generation using realized market volume and the parent order participation cap.
+- Added `main.py --pov-sample` and saved POV sample child orders under `reports/`.
+- Implemented Adaptive child-order generation using `alpha_signal`, `spread_proxy`, `rolling_vol`, `liquidity_score`, urgency, and the participation cap.
+- Added `main.py --adaptive-sample` and saved Adaptive sample child orders under `reports/`.
+- Added `main.py --strategy-compare-sample` to compare TWAP, VWAP, POV, and Adaptive schedules on the same parent order.
+- Found and fixed a VWAP participation-cap issue during schedule comparison.

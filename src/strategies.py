@@ -124,10 +124,31 @@ class VWAPStrategy(ExecutionStrategy):
         if window_share_total <= 0:
             raise ValueError(f"No positive expected volume shares for parent order {order.order_id}.")
 
-        # Renormalize inside the execution window. The full-day volume curve sums
-        # to one, but a parent order may cover only part of the day.
-        quantities = (order.quantity * expected_shares / window_share_total).tolist()
-        quantities[-1] += order.quantity - sum(quantities)
+        remaining_quantity = order.quantity
+        quantities = []
+
+        for bar_number, (_, row) in enumerate(window.iterrows()):
+            remaining_bars = len(window) - bar_number
+            remaining_expected = expected_shares.iloc[bar_number:].sum()
+            if remaining_expected > 0:
+                target_quantity = remaining_quantity * expected_shares.iloc[bar_number] / remaining_expected
+            else:
+                target_quantity = remaining_quantity / remaining_bars
+
+            # VWAP follows the volume curve, but it still must respect the same
+            # participation cap as the other execution strategies.
+            child_quantity = min(
+                remaining_quantity,
+                target_quantity,
+                order.participation_cap * row["volume"],
+            )
+
+            # On the final bar, try to complete the order if the cap allows it.
+            if remaining_bars == 1:
+                child_quantity = min(remaining_quantity, order.participation_cap * row["volume"])
+
+            quantities.append(float(child_quantity))
+            remaining_quantity -= child_quantity
 
         return self.child_order_frame(
             order=order,
