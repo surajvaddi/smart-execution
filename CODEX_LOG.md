@@ -90,3 +90,12 @@ Comments:
 - Added signal decay CSV output under `reports/` for future plotting/reporting.
 - Added `signal_quality_summary()` to rank signals across horizons by mean absolute IC.
 - Added signal summary CSV output and markdown interpretation notes under `reports/`.
+
+### Phase 4: Parent Order Simulation
+
+- Expanded `src/execution.py` with parent order validation, default ADV fractions, default execution windows, and participation cap defaults.
+- Added helpers for parsing execution window times, computing average daily volume, converting ADV fractions into order quantities, and filtering market data by execution window.
+- Implemented deterministic parent order generation across ticker, date, side, order size, and execution window.
+- Added `parent_orders_to_frame()` to save generated parent orders as tabular research inputs.
+- Added `main.py --orders-sample` to generate parent orders from a processed CSV and save them under `reports/`.
+- Corrected intraday timestamp handling so Yahoo Finance UTC bars are converted to New York market time before deriving `date`, `time`, and `bar_index`.

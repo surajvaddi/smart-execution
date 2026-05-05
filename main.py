@@ -15,6 +15,7 @@ import pandas as pd
 from src.backtester import Backtester
 from src.data_loader import load_and_save_intraday_data
 from src.features import add_microstructure_features, estimate_volume_curve
+from src.execution import generate_parent_orders, parent_orders_to_frame
 from src.signals import (
     DEFAULT_HORIZONS,
     add_forward_returns,
@@ -47,6 +48,16 @@ def parse_args() -> argparse.Namespace:
         "--signal-sample",
         action="store_true",
         help="Compute Phase 3 signal metrics for a processed sample CSV.",
+    )
+    parser.add_argument(
+        "--orders-sample",
+        action="store_true",
+        help="Generate Phase 4 parent orders for a processed sample CSV.",
+    )
+    parser.add_argument(
+        "--orders-output-csv",
+        default=None,
+        help="Optional CSV path for --orders-sample parent orders.",
     )
     parser.add_argument(
         "--input-csv",
@@ -101,6 +112,11 @@ def _default_signal_summary_output_path(input_path: Path) -> Path:
 def _default_signal_notes_output_path(input_path: Path) -> Path:
     """Create a stable default report path for signal interpretation notes."""
     return Path("reports") / f"signal_notes_{input_path.stem}.md"
+
+
+def _default_orders_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for generated parent orders."""
+    return Path("reports") / f"parent_orders_{input_path.stem}.csv"
 
 
 def _write_signal_notes(
@@ -250,10 +266,29 @@ def main() -> None:
         print(f"Saved signal summary results to {summary_output_path}.")
         print(f"Saved signal notes to {notes_output_path}.")
         print(ranked[display_cols].head(12).to_string(index=False))
+    elif args.orders_sample:
+        # Phase 4 smoke path: creates parent orders from available market dates.
+        # Strategies in Phase 5 will all consume this same order set.
+        input_path, data = _load_processed_csv(args.input_csv)
+        orders = generate_parent_orders(data)
+        orders_frame = parent_orders_to_frame(orders)
+        output_path = (
+            Path(args.orders_output_csv)
+            if args.orders_output_csv
+            else _default_orders_output_path(input_path)
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        orders_frame.to_csv(output_path, index=False)
+
+        print(f"Loaded {len(data):,} processed bars from {input_path}.")
+        print(f"Generated {len(orders):,} parent orders.")
+        print(f"Saved parent orders to {output_path}.")
+        print(orders_frame.head(12).to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
         print("Phase 3 signal evaluation is available. Use --signal-sample to test signals.")
+        print("Phase 4 parent order generation is available. Use --orders-sample to test orders.")
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ REQUIRED_COLUMNS = [
 
 RAW_DATA_DIR = Path("data/raw")
 PROCESSED_DATA_DIR = Path("data/processed")
+MARKET_TIMEZONE = "America/New_York"
 
 
 def _get_yfinance():
@@ -77,6 +78,12 @@ def clean_intraday_data(raw: pd.DataFrame, ticker: str) -> pd.DataFrame:
     # on version and arguments. Collapse to the price-field level for one symbol.
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
+
+    # Yahoo intraday bars often arrive with UTC timestamps. Execution windows in
+    # this project are specified in New York market time, so convert the index
+    # before deriving date, time, and bar_index.
+    if getattr(df.index, "tz", None) is not None:
+        df.index = df.index.tz_convert(MARKET_TIMEZONE)
 
     # Normalize names once here so the rest of the project can assume lowercase
     # snake_case columns regardless of Yahoo's output format.
