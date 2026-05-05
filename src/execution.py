@@ -1,4 +1,9 @@
-"""Parent and child order domain objects and parent-order generation helpers."""
+"""Parent and child order domain objects and parent-order generation helpers.
+
+Phase 4 creates the simulated demand that execution strategies must satisfy.
+Nothing in this module decides *how* to trade; it only defines *what* needs to
+be traded: ticker, side, size, time window, and participation cap.
+"""
 
 from __future__ import annotations
 
@@ -10,12 +15,20 @@ import pandas as pd
 
 VALID_SIDES = {"buy", "sell"}
 
+# Order sizes are expressed as fractions of average daily volume. This keeps
+# simulations comparable across symbols with different liquidity profiles.
 DEFAULT_ORDER_SIZE_FRACTIONS = [0.01, 0.05, 0.10]
+
+# Execution windows are written in New York market time. The data loader
+# converts Yahoo timestamps into this timezone before creating the `time` column.
 DEFAULT_EXECUTION_WINDOWS = [
     ("10:00", "15:30"),
     ("10:00", "12:00"),
     ("13:00", "15:30"),
 ]
+
+# A 10% cap means a strategy should not trade more than 10% of the market volume
+# available in a bar. Strategy code enforces the cap when it creates child orders.
 DEFAULT_PARTICIPATION_CAP = 0.10
 
 
@@ -32,11 +45,17 @@ class ParentOrder:
     start_time: time
     end_time: time
     participation_cap: float
+
+    # `date` and `order_id` are optional metadata for research bookkeeping. They
+    # make it possible to compare multiple strategies on exactly the same parent
+    # order later in the backtest.
     date: object | None = None
     order_id: str | None = None
 
     def __post_init__(self) -> None:
         """Validate parent order fields at construction time."""
+        # Normalize side once so downstream strategy and TCA logic can compare
+        # against lowercase strings without repeating case handling.
         side = self.side.lower()
         if side not in VALID_SIDES:
             raise ValueError(f"side must be one of {sorted(VALID_SIDES)}, got {self.side!r}.")
@@ -54,6 +73,8 @@ def parse_time(value: str | time) -> time:
     """Parse HH:MM strings into `datetime.time` objects."""
     if isinstance(value, time):
         return value
+    # CSV round-trips store Python `time` objects as strings such as "10:00:00".
+    # Pandas handles both "10:00" and "10:00:00" reliably here.
     return pd.to_datetime(value).time()
 
 
@@ -64,6 +85,10 @@ def average_daily_volume(data: pd.DataFrame) -> pd.Series:
     if missing:
         raise ValueError(f"Missing required ADV columns: {missing}")
 
+    # Algorithm:
+    # 1. Sum intraday bar volume into one total per ticker/date.
+    # 2. Average those daily totals by ticker.
+    # The result is used to scale parent orders by liquidity.
     daily_volume = data.groupby(["ticker", "date"])["volume"].sum()
     return daily_volume.groupby("ticker").mean()
 
@@ -78,6 +103,7 @@ def order_quantity_from_adv(data: pd.DataFrame, ticker: str, adv_fraction: float
     if normalized_ticker not in adv.index:
         raise ValueError(f"No ADV available for ticker {normalized_ticker}.")
 
+    # Example: if SPY ADV is 75,000,000 shares, a 1% order is 750,000 shares.
     return float(adv.loc[normalized_ticker] * adv_fraction)
 
 
@@ -93,7 +119,12 @@ def filter_execution_window(data: pd.DataFrame, start_time: str | time, end_time
     if start >= end:
         raise ValueError("start_time must be before end_time.")
 
+    # Convert every bar's time defensively because in-memory data has
+    # `datetime.time` objects while CSV-loaded data has strings.
     bar_times = data["time"].map(parse_time)
+
+    # The window is inclusive on both ends. With 5-minute bars, a 10:00-12:00
+    # window includes the bars stamped 10:00 and 12:00.
     return data[(bar_times >= start) & (bar_times <= end)]
 
 
@@ -105,22 +136,37 @@ def generate_parent_orders(
     participation_cap: float = DEFAULT_PARTICIPATION_CAP,
     max_orders_per_ticker: int | None = 20,
 ) -> list[ParentOrder]:
-    """Generate parent orders from available ticker/date market data."""
+    """Generate parent orders from available ticker/date market data.
+
+    The generation grid is deterministic:
+
+    ticker -> date -> side -> ADV size fraction -> execution window
+
+    This matters because every execution strategy in Phase 5 should receive the
+    same parent-order set, so strategy comparisons are apples-to-apples.
+    """
     required = ["ticker", "date", "time", "volume"]
     missing = [col for col in required if col not in data.columns]
     if missing:
         raise ValueError(f"Missing required parent-order generation columns: {missing}")
 
+    # Defaults match the README assignment: buy/sell directions, 1/5/10% ADV
+    # order sizes, and three intraday execution windows.
     sides = sides or ["buy", "sell"]
     order_size_fractions = order_size_fractions or DEFAULT_ORDER_SIZE_FRACTIONS
     execution_windows = execution_windows or DEFAULT_EXECUTION_WINDOWS
 
     orders: list[ParentOrder] = []
+    # Compute ADV once up front so all orders for a ticker share the same size
+    # reference. This avoids orders changing size from one date to another.
     adv = average_daily_volume(data)
     sorted_data = data.sort_index()
 
     for ticker, ticker_data in sorted_data.groupby("ticker"):
         ticker_orders: list[ParentOrder] = []
+
+        # Precompute share quantities for this ticker. Each parent order uses an
+        # actual share quantity, while the order ID preserves the ADV fraction.
         quantity_by_fraction = {
             fraction: float(adv.loc[ticker] * fraction)
             for fraction in order_size_fractions
@@ -132,14 +178,22 @@ def generate_parent_orders(
                     for start_value, end_value in execution_windows:
                         start = parse_time(start_value)
                         end = parse_time(end_value)
+
+                        # Some samples may not contain every requested time
+                        # window, especially if timestamps are timezone-shifted
+                        # or the day is partial. Skip invalid windows rather
+                        # than creating orders with no executable bars.
                         window_data = filter_execution_window(date_data, start, end)
                         if window_data.empty:
                             continue
 
+                        # The order ID encodes every simulation dimension needed
+                        # to join fills/results back to the parent order later.
                         order_id = (
                             f"{ticker}_{date_value}_{side}_"
                             f"{int(fraction * 10000):04d}bp_{start:%H%M}_{end:%H%M}"
                         )
+
                         ticker_orders.append(
                             ParentOrder(
                                 ticker=ticker,
@@ -153,6 +207,8 @@ def generate_parent_orders(
                             )
                         )
 
+                        # `max_orders_per_ticker` keeps smoke checks small. The
+                        # full backtest can pass None to generate the entire grid.
                         if (
                             max_orders_per_ticker is not None
                             and len(ticker_orders) >= max_orders_per_ticker
@@ -172,6 +228,8 @@ def generate_parent_orders(
 
 def parent_orders_to_frame(orders: list[ParentOrder]) -> pd.DataFrame:
     """Convert generated parent orders into a tabular summary."""
+    # CSV output is useful for inspecting the simulation grid before strategies
+    # begin creating child orders from it.
     return pd.DataFrame(
         [
             {

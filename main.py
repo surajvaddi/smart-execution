@@ -272,6 +272,9 @@ def main() -> None:
         input_path, data = _load_processed_csv(args.input_csv)
         orders = generate_parent_orders(data)
         orders_frame = parent_orders_to_frame(orders)
+
+        # Saving the order grid makes it easier to audit the simulation demand
+        # before comparing TWAP/VWAP/POV/adaptive execution schedules.
         output_path = (
             Path(args.orders_output_csv)
             if args.orders_output_csv
