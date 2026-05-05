@@ -141,6 +141,40 @@ class POVStrategy(ExecutionStrategy):
     # Trades as a capped percentage of realized market volume.
     name = "POV"
 
+    def generate_child_orders(self, order: ParentOrder, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate a participation-of-volume schedule using realized bar volume."""
+        window = self.market_window(order, data)
+        remaining_quantity = order.quantity
+        timestamps = []
+        quantities = []
+        reference_prices = []
+
+        for timestamp, row in window.iterrows():
+            if remaining_quantity <= 0:
+                break
+
+            # POV uses actual bar volume, capped by the parent order's maximum
+            # participation rate. This controls footprint but does not guarantee
+            # completion when the market is too quiet.
+            child_quantity = min(
+                remaining_quantity,
+                order.participation_cap * row["volume"],
+            )
+            if child_quantity <= 0:
+                continue
+
+            timestamps.append(timestamp)
+            quantities.append(float(child_quantity))
+            reference_prices.append(float(row["close"]))
+            remaining_quantity -= child_quantity
+
+        return self.child_order_frame(
+            order=order,
+            timestamps=pd.Index(timestamps),
+            quantities=quantities,
+            reference_prices=reference_prices,
+        )
+
 
 class AdaptiveStrategy(ExecutionStrategy):
     # Adjusts speed using alpha, liquidity, spread, volatility, and urgency.
