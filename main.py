@@ -15,7 +15,7 @@ import pandas as pd
 from src.backtester import Backtester
 from src.data_loader import load_and_save_intraday_data
 from src.features import add_microstructure_features, estimate_volume_curve
-from src.signals import DEFAULT_HORIZONS, add_forward_returns, evaluate_signals
+from src.signals import DEFAULT_HORIZONS, add_forward_returns, evaluate_signals, signal_decay_table
 
 
 DEFAULT_TICKERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
@@ -52,6 +52,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional CSV path for --signal-sample results.",
     )
+    parser.add_argument(
+        "--signal-decay-output-csv",
+        default=None,
+        help="Optional CSV path for --signal-sample IC decay results.",
+    )
     return parser.parse_args()
 
 
@@ -65,6 +70,11 @@ def _load_processed_csv(input_csv: str) -> tuple[Path, pd.DataFrame]:
 def _default_signal_output_path(input_path: Path) -> Path:
     """Create a stable default report path for signal evaluation output."""
     return Path("reports") / f"signal_evaluation_{input_path.stem}.csv"
+
+
+def _default_signal_decay_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for signal decay output."""
+    return Path("reports") / f"signal_decay_{input_path.stem}.csv"
 
 
 def main() -> None:
@@ -112,6 +122,15 @@ def main() -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         results.to_csv(output_path, index=False)
 
+        decay = signal_decay_table(results)
+        decay_output_path = (
+            Path(args.signal_decay_output_csv)
+            if args.signal_decay_output_csv
+            else _default_signal_decay_output_path(input_path)
+        )
+        decay_output_path.parent.mkdir(parents=True, exist_ok=True)
+        decay.to_csv(decay_output_path, index=False)
+
         ranked = results.sort_values(
             ["information_coefficient", "hit_rate"],
             ascending=False,
@@ -128,6 +147,7 @@ def main() -> None:
         print(f"Loaded {len(signal_data):,} processed bars from {input_path}.")
         print(f"Evaluated {len(results):,} signal-horizon combinations.")
         print(f"Saved signal evaluation results to {output_path}.")
+        print(f"Saved signal decay results to {decay_output_path}.")
         print(ranked[display_cols].head(12).to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")

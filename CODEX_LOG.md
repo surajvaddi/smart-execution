@@ -86,3 +86,5 @@ Comments:
 - Added `evaluate_signals()` to produce one result row per signal and prediction horizon.
 - Added `main.py --signal-sample` to run the offline signal research path from a processed CSV.
 - Added CSV output for signal evaluation results under `reports/`.
+- Added `signal_decay_table()` to pivot information coefficient by signal and horizon.
+- Added signal decay CSV output under `reports/` for future plotting/reporting.

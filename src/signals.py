@@ -114,3 +114,20 @@ def evaluate_signals(
             )
 
     return pd.DataFrame(rows)
+
+
+def signal_decay_table(
+    evaluation: pd.DataFrame,
+    metric_col: str = "information_coefficient",
+) -> pd.DataFrame:
+    """Pivot signal evaluation results into signal-by-horizon decay format."""
+    required = ["signal", "horizon", metric_col]
+    missing = [col for col in required if col not in evaluation.columns]
+    if missing:
+        raise ValueError(f"Missing required decay table columns: {missing}")
+
+    decay = evaluation.pivot(index="signal", columns="horizon", values=metric_col)
+    decay = decay.sort_index(axis=1)
+    decay.columns = [f"horizon_{horizon}" for horizon in decay.columns]
+    decay = decay.reset_index()
+    return decay
