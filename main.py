@@ -15,7 +15,13 @@ import pandas as pd
 from src.backtester import Backtester
 from src.data_loader import load_and_save_intraday_data
 from src.features import add_microstructure_features, estimate_volume_curve
-from src.signals import DEFAULT_HORIZONS, add_forward_returns, evaluate_signals, signal_decay_table
+from src.signals import (
+    DEFAULT_HORIZONS,
+    add_forward_returns,
+    evaluate_signals,
+    signal_decay_table,
+    signal_quality_summary,
+)
 
 
 DEFAULT_TICKERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
@@ -57,6 +63,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional CSV path for --signal-sample IC decay results.",
     )
+    parser.add_argument(
+        "--signal-summary-output-csv",
+        default=None,
+        help="Optional CSV path for --signal-sample quality summary results.",
+    )
+    parser.add_argument(
+        "--signal-notes-output-md",
+        default=None,
+        help="Optional markdown path for --signal-sample interpretation notes.",
+    )
     return parser.parse_args()
 
 
@@ -75,6 +91,73 @@ def _default_signal_output_path(input_path: Path) -> Path:
 def _default_signal_decay_output_path(input_path: Path) -> Path:
     """Create a stable default report path for signal decay output."""
     return Path("reports") / f"signal_decay_{input_path.stem}.csv"
+
+
+def _default_signal_summary_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for signal quality summary output."""
+    return Path("reports") / f"signal_summary_{input_path.stem}.csv"
+
+
+def _default_signal_notes_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for signal interpretation notes."""
+    return Path("reports") / f"signal_notes_{input_path.stem}.md"
+
+
+def _write_signal_notes(
+    output_path: Path,
+    input_path: Path,
+    evaluation: pd.DataFrame,
+    summary: pd.DataFrame,
+) -> None:
+    """Write concise interpretation notes for the current signal sample."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    top = summary.head(3)
+    alpha_row = summary[summary["signal"] == "alpha_signal"]
+    alpha_note = "alpha_signal was not present in the summary."
+    if not alpha_row.empty:
+        alpha = alpha_row.iloc[0]
+        alpha_note = (
+            f"alpha_signal mean absolute IC was {alpha['mean_abs_ic']:.6f}; "
+            f"its strongest horizon was {int(alpha['best_horizon'])} bars "
+            f"with IC {alpha['best_horizon_ic']:.6f}."
+        )
+
+    lines = [
+        "# Phase 3 Signal Research Notes",
+        "",
+        f"Input data: `{input_path}`",
+        f"Signal-horizon tests: {len(evaluation)}",
+        "",
+        "## Top Signals By Mean Absolute IC",
+        "",
+    ]
+    for _, row in top.iterrows():
+        lines.append(
+            "- "
+            f"{row['signal']}: mean absolute IC {row['mean_abs_ic']:.6f}, "
+            f"best horizon {int(row['best_horizon'])} bars, "
+            f"best-horizon IC {row['best_horizon_ic']:.6f}, "
+            f"mean hit rate {row['mean_hit_rate']:.6f}."
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Alpha Signal",
+            "",
+            alpha_note,
+            "",
+            "## Interpretation",
+            "",
+            "- These results are preliminary because the current sample is only the saved local sample, not the full multi-ticker 60-day research set.",
+            "- IC values are small, which is normal for short-horizon intraday signals and means the adaptive strategy should treat alpha as one input, not a standalone trading rule.",
+            "- Signals based on spread, volume, volatility, and imbalance are OHLCV proxies, not true order book measurements.",
+            "- Phase 4 onward should evaluate whether any weak signal value survives spread, impact, timing, and opportunity costs.",
+            "",
+        ]
+    )
+    output_path.write_text("\n".join(lines))
 
 
 def main() -> None:
@@ -131,6 +214,22 @@ def main() -> None:
         decay_output_path.parent.mkdir(parents=True, exist_ok=True)
         decay.to_csv(decay_output_path, index=False)
 
+        summary = signal_quality_summary(results)
+        summary_output_path = (
+            Path(args.signal_summary_output_csv)
+            if args.signal_summary_output_csv
+            else _default_signal_summary_output_path(input_path)
+        )
+        summary_output_path.parent.mkdir(parents=True, exist_ok=True)
+        summary.to_csv(summary_output_path, index=False)
+
+        notes_output_path = (
+            Path(args.signal_notes_output_md)
+            if args.signal_notes_output_md
+            else _default_signal_notes_output_path(input_path)
+        )
+        _write_signal_notes(notes_output_path, input_path, results, summary)
+
         ranked = results.sort_values(
             ["information_coefficient", "hit_rate"],
             ascending=False,
@@ -148,6 +247,8 @@ def main() -> None:
         print(f"Evaluated {len(results):,} signal-horizon combinations.")
         print(f"Saved signal evaluation results to {output_path}.")
         print(f"Saved signal decay results to {decay_output_path}.")
+        print(f"Saved signal summary results to {summary_output_path}.")
+        print(f"Saved signal notes to {notes_output_path}.")
         print(ranked[display_cols].head(12).to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")

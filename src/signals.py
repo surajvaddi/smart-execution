@@ -131,3 +131,48 @@ def signal_decay_table(
     decay.columns = [f"horizon_{horizon}" for horizon in decay.columns]
     decay = decay.reset_index()
     return decay
+
+
+def signal_quality_summary(evaluation: pd.DataFrame) -> pd.DataFrame:
+    """Summarize signal quality across all evaluated horizons."""
+    required = [
+        "signal",
+        "horizon",
+        "n_obs",
+        "information_coefficient",
+        "hit_rate",
+        "decile_spread",
+    ]
+    missing = [col for col in required if col not in evaluation.columns]
+    if missing:
+        raise ValueError(f"Missing required signal summary columns: {missing}")
+
+    rows = []
+    for signal, group in evaluation.groupby("signal"):
+        valid_ic = group.dropna(subset=["information_coefficient"])
+        if valid_ic.empty:
+            best_row = None
+        else:
+            # Best horizon is based on absolute IC because both positive and
+            # negative predictive relationships can be useful if stable.
+            best_idx = valid_ic["information_coefficient"].abs().idxmax()
+            best_row = valid_ic.loc[best_idx]
+
+        rows.append(
+            {
+                "signal": signal,
+                "mean_ic": group["information_coefficient"].mean(),
+                "mean_abs_ic": group["information_coefficient"].abs().mean(),
+                "max_abs_ic": group["information_coefficient"].abs().max(),
+                "best_horizon": np.nan if best_row is None else best_row["horizon"],
+                "best_horizon_ic": (
+                    np.nan if best_row is None else best_row["information_coefficient"]
+                ),
+                "mean_hit_rate": group["hit_rate"].mean(),
+                "mean_decile_spread": group["decile_spread"].mean(),
+                "min_n_obs": group["n_obs"].min(),
+            }
+        )
+
+    summary = pd.DataFrame(rows)
+    return summary.sort_values("mean_abs_ic", ascending=False).reset_index(drop=True)

@@ -88,3 +88,5 @@ Comments:
 - Added CSV output for signal evaluation results under `reports/`.
 - Added `signal_decay_table()` to pivot information coefficient by signal and horizon.
 - Added signal decay CSV output under `reports/` for future plotting/reporting.
+- Added `signal_quality_summary()` to rank signals across horizons by mean absolute IC.
+- Added signal summary CSV output and markdown interpretation notes under `reports/`.
