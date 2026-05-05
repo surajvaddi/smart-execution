@@ -12,6 +12,11 @@ import pandas as pd
 from src.execution import ParentOrder
 
 
+DEFAULT_TEMPORARY_IMPACT_ETA = 0.10
+DEFAULT_TEMPORARY_IMPACT_BETA = 0.5
+DEFAULT_PERMANENT_IMPACT_GAMMA = 0.02
+
+
 def synthetic_bid_ask_from_row(row: pd.Series) -> tuple[float, float, float]:
     """Return synthetic mid, bid, and ask prices for one market-data row."""
     missing = [col for col in ["close", "spread_proxy"] if col not in row.index]
@@ -51,6 +56,53 @@ def add_synthetic_bid_ask(market_data: pd.DataFrame) -> pd.DataFrame:
     out["synthetic_bid"] = out["mid_price"] - out["half_spread"]
     out["synthetic_ask"] = out["mid_price"] + out["half_spread"]
     return out
+
+
+def temporary_market_impact(
+    mid_price: float,
+    child_quantity: float,
+    market_volume: float,
+    eta: float = DEFAULT_TEMPORARY_IMPACT_ETA,
+    beta: float = DEFAULT_TEMPORARY_IMPACT_BETA,
+) -> float:
+    """Estimate temporary impact for one child order."""
+    _validate_impact_inputs(mid_price, child_quantity, market_volume)
+    if eta < 0:
+        raise ValueError("eta must be non-negative.")
+    if beta <= 0:
+        raise ValueError("beta must be positive.")
+
+    participation = child_quantity / market_volume
+    return float(eta * mid_price * participation**beta)
+
+
+def permanent_market_impact(
+    mid_price: float,
+    child_quantity: float,
+    market_volume: float,
+    gamma: float = DEFAULT_PERMANENT_IMPACT_GAMMA,
+) -> float:
+    """Estimate permanent impact proxy for one child order."""
+    _validate_impact_inputs(mid_price, child_quantity, market_volume)
+    if gamma < 0:
+        raise ValueError("gamma must be non-negative.")
+
+    participation = child_quantity / market_volume
+    return float(gamma * mid_price * participation)
+
+
+def _validate_impact_inputs(
+    mid_price: float,
+    child_quantity: float,
+    market_volume: float,
+) -> None:
+    """Validate common market impact inputs."""
+    if mid_price <= 0:
+        raise ValueError("mid_price must be positive.")
+    if child_quantity < 0:
+        raise ValueError("child_quantity must be non-negative.")
+    if market_volume <= 0:
+        raise ValueError("market_volume must be positive.")
 
 
 def apply_transaction_cost_model(fills: pd.DataFrame, market_data: pd.DataFrame) -> pd.DataFrame:
