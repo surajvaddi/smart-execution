@@ -15,6 +15,7 @@ from src.execution import ParentOrder
 DEFAULT_TEMPORARY_IMPACT_ETA = 0.10
 DEFAULT_TEMPORARY_IMPACT_BETA = 0.5
 DEFAULT_PERMANENT_IMPACT_GAMMA = 0.02
+VALID_TCA_SIDES = {"buy", "sell"}
 
 
 def synthetic_bid_ask_from_row(row: pd.Series) -> tuple[float, float, float]:
@@ -103,6 +104,28 @@ def _validate_impact_inputs(
         raise ValueError("child_quantity must be non-negative.")
     if market_volume <= 0:
         raise ValueError("market_volume must be positive.")
+
+
+def fill_price_for_child_order(
+    side: str,
+    synthetic_bid: float,
+    synthetic_ask: float,
+    temporary_impact: float,
+) -> float:
+    """Estimate the fill price for one buy or sell child order."""
+    normalized_side = side.lower()
+    if normalized_side not in VALID_TCA_SIDES:
+        raise ValueError(f"side must be one of {sorted(VALID_TCA_SIDES)}, got {side!r}.")
+    if synthetic_bid <= 0 or synthetic_ask <= 0:
+        raise ValueError("synthetic bid and ask must be positive.")
+    if synthetic_bid > synthetic_ask:
+        raise ValueError("synthetic_bid must be less than or equal to synthetic_ask.")
+    if temporary_impact < 0:
+        raise ValueError("temporary_impact must be non-negative.")
+
+    if normalized_side == "buy":
+        return float(synthetic_ask + temporary_impact)
+    return float(synthetic_bid - temporary_impact)
 
 
 def apply_transaction_cost_model(fills: pd.DataFrame, market_data: pd.DataFrame) -> pd.DataFrame:
