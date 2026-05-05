@@ -179,3 +179,99 @@ class POVStrategy(ExecutionStrategy):
 class AdaptiveStrategy(ExecutionStrategy):
     # Adjusts speed using alpha, liquidity, spread, volatility, and urgency.
     name = "Adaptive"
+
+    def adaptive_multiplier(self, row: pd.Series, side: str, urgency: float) -> float:
+        """Return an execution speed multiplier from signals and conditions."""
+        signal = row.get("alpha_signal", 0.0)
+        spread = row.get("spread_proxy", 0.0)
+        volatility = row.get("rolling_vol", 0.0)
+        liquidity = row.get("liquidity_score", 0.0)
+
+        multiplier = 1.0
+
+        # Directional alpha changes speed by side. For buys, bullish signal
+        # means trade faster before price rises; for sells, bearish signal means
+        # sell faster before price falls.
+        if side == "buy":
+            if signal > 0:
+                multiplier *= 1.4
+            elif signal < 0:
+                multiplier *= 0.7
+        elif side == "sell":
+            if signal < 0:
+                multiplier *= 1.4
+            elif signal > 0:
+                multiplier *= 0.7
+
+        # High spread and high volatility make trading more expensive or risky,
+        # so slow down unless urgency later pushes the multiplier back up.
+        if spread > row.get("spread_proxy_75pct", float("inf")):
+            multiplier *= 0.75
+        if volatility > row.get("rolling_vol_75pct", float("inf")):
+            multiplier *= 0.85
+
+        # High liquidity is the condition where taking more quantity is least
+        # likely to create avoidable impact.
+        if liquidity > row.get("liquidity_score_75pct", float("inf")):
+            multiplier *= 1.2
+
+        multiplier *= urgency
+        return float(max(0.25, min(2.5, multiplier)))
+
+    def generate_child_orders(self, order: ParentOrder, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate an adaptive schedule using signals, liquidity, and urgency."""
+        window = self.market_window(order, data).copy()
+
+        required_features = [
+            "alpha_signal",
+            "spread_proxy",
+            "rolling_vol",
+            "liquidity_score",
+            "volume",
+        ]
+        missing = [col for col in required_features if col not in window.columns]
+        if missing:
+            raise ValueError(f"Missing required adaptive strategy columns: {missing}")
+
+        window["spread_proxy_75pct"] = data["spread_proxy"].quantile(0.75)
+        window["rolling_vol_75pct"] = data["rolling_vol"].quantile(0.75)
+        window["liquidity_score_75pct"] = data["liquidity_score"].quantile(0.75)
+
+        remaining_quantity = order.quantity
+        timestamps = []
+        quantities = []
+        reference_prices = []
+
+        for bar_number, (timestamp, row) in enumerate(window.iterrows()):
+            if remaining_quantity <= 0:
+                break
+
+            remaining_bars = len(window) - bar_number
+            base_quantity = remaining_quantity / remaining_bars
+
+            target_completed = bar_number / len(window)
+            actual_completed = (order.quantity - remaining_quantity) / order.quantity
+            urgency = 1.0 + max(0.0, target_completed - actual_completed)
+
+            if remaining_bars == 1:
+                # On the final bar, attempt to complete the parent order. The
+                # participation cap below still limits the child quantity.
+                child_quantity = remaining_quantity
+            else:
+                child_quantity = base_quantity * self.adaptive_multiplier(row, order.side, urgency)
+            child_quantity = min(child_quantity, remaining_quantity)
+            child_quantity = min(child_quantity, order.participation_cap * row["volume"])
+            if child_quantity <= 0:
+                continue
+
+            timestamps.append(timestamp)
+            quantities.append(float(child_quantity))
+            reference_prices.append(float(row["close"]))
+            remaining_quantity -= child_quantity
+
+        return self.child_order_frame(
+            order=order,
+            timestamps=pd.Index(timestamps),
+            quantities=quantities,
+            reference_prices=reference_prices,
+        )
