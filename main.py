@@ -23,7 +23,7 @@ from src.signals import (
     signal_decay_table,
     signal_quality_summary,
 )
-from src.strategies import POVStrategy, TWAPStrategy, VWAPStrategy
+from src.strategies import AdaptiveStrategy, POVStrategy, TWAPStrategy, VWAPStrategy
 
 
 DEFAULT_TICKERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
@@ -71,6 +71,11 @@ def parse_args() -> argparse.Namespace:
         help="Generate a Phase 5 POV child-order schedule for one parent order.",
     )
     parser.add_argument(
+        "--adaptive-sample",
+        action="store_true",
+        help="Generate a Phase 5 Adaptive child-order schedule for one parent order.",
+    )
+    parser.add_argument(
         "--orders-output-csv",
         default=None,
         help="Optional CSV path for --orders-sample parent orders.",
@@ -89,6 +94,11 @@ def parse_args() -> argparse.Namespace:
         "--pov-output-csv",
         default=None,
         help="Optional CSV path for --pov-sample child orders.",
+    )
+    parser.add_argument(
+        "--adaptive-output-csv",
+        default=None,
+        help="Optional CSV path for --adaptive-sample child orders.",
     )
     parser.add_argument(
         "--input-csv",
@@ -163,6 +173,11 @@ def _default_vwap_output_path(input_path: Path) -> Path:
 def _default_pov_output_path(input_path: Path) -> Path:
     """Create a stable default report path for a POV sample schedule."""
     return Path("reports") / f"pov_child_orders_{input_path.stem}.csv"
+
+
+def _default_adaptive_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for an Adaptive sample schedule."""
+    return Path("reports") / f"adaptive_child_orders_{input_path.stem}.csv"
 
 
 def _write_signal_notes(
@@ -407,6 +422,37 @@ def main() -> None:
         print(f"Max participation: {participation.max():,.6f}.")
         print(f"Saved POV child orders to {output_path}.")
         print(child_orders.head(8).to_string(index=False))
+    elif args.adaptive_sample:
+        # Phase 5 Adaptive smoke path only. Adaptive needs Phase 2 features, so
+        # this path enriches the processed data before generating child orders.
+        input_path, data = _load_processed_csv(args.input_csv)
+        featured = add_microstructure_features(data)
+        order = generate_parent_orders(featured, max_orders_per_ticker=1)[0]
+        strategy = AdaptiveStrategy()
+        child_orders = strategy.generate_child_orders(order, featured)
+        output_path = (
+            Path(args.adaptive_output_csv)
+            if args.adaptive_output_csv
+            else _default_adaptive_output_path(input_path)
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        child_orders.to_csv(output_path, index=False)
+
+        market_window = strategy.market_window(order, featured)
+        participation = (
+            child_orders.set_index("timestamp")["quantity"]
+            / market_window.loc[child_orders["timestamp"], "volume"]
+        )
+
+        print(f"Loaded {len(data):,} processed bars from {input_path}.")
+        print(f"Generated Adaptive schedule for parent order {order.order_id}.")
+        print(f"Child orders: {len(child_orders):,}.")
+        print(f"Parent quantity: {order.quantity:,.6f}.")
+        print(f"Child quantity sum: {child_orders['quantity'].sum():,.6f}.")
+        print(f"Fill rate: {child_orders['quantity'].sum() / order.quantity:,.6f}.")
+        print(f"Max participation: {participation.max():,.6f}.")
+        print(f"Saved Adaptive child orders to {output_path}.")
+        print(child_orders.head(8).to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -415,6 +461,7 @@ def main() -> None:
         print("Phase 5 TWAP generation is available. Use --twap-sample to test TWAP.")
         print("Phase 5 VWAP generation is available. Use --vwap-sample to test VWAP.")
         print("Phase 5 POV generation is available. Use --pov-sample to test POV.")
+        print("Phase 5 Adaptive generation is available. Use --adaptive-sample to test Adaptive.")
 
 
 if __name__ == "__main__":
