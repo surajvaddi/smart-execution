@@ -15,6 +15,7 @@ import pandas as pd
 from src.backtester import Backtester
 from src.data_loader import load_and_save_intraday_data
 from src.features import add_microstructure_features, estimate_volume_curve
+from src.signals import DEFAULT_HORIZONS, add_forward_returns, evaluate_signals
 
 
 DEFAULT_TICKERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
@@ -37,11 +38,23 @@ def parse_args() -> argparse.Namespace:
         help="Compute Phase 2 features for a processed sample CSV.",
     )
     parser.add_argument(
+        "--signal-sample",
+        action="store_true",
+        help="Compute Phase 3 signal metrics for a processed sample CSV.",
+    )
+    parser.add_argument(
         "--input-csv",
         default="data/processed/SPY_5d_5m.csv",
         help="Processed CSV to use with --feature-sample.",
     )
     return parser.parse_args()
+
+
+def _load_processed_csv(input_csv: str) -> tuple[Path, pd.DataFrame]:
+    """Load a processed data-loader CSV for offline phase smoke checks."""
+    input_path = Path(input_csv)
+    data = pd.read_csv(input_path, index_col=0, parse_dates=True)
+    return input_path, data
 
 
 def main() -> None:
@@ -66,8 +79,7 @@ def main() -> None:
     elif args.feature_sample:
         # Phase 2 smoke path: stays offline by reading a processed CSV and then
         # validating the feature pipeline against saved sample data.
-        input_path = Path(args.input_csv)
-        data = pd.read_csv(input_path, index_col=0, parse_dates=True)
+        input_path, data = _load_processed_csv(args.input_csv)
         featured = add_microstructure_features(data)
         volume_curve = estimate_volume_curve(featured)
 
@@ -75,9 +87,34 @@ def main() -> None:
         print(f"Loaded {len(featured):,} processed bars from {input_path}.")
         print(f"Added Phase 2 features. Non-null alpha_signal rows: {non_null_alpha:,}.")
         print(f"Estimated volume curve bars: {len(volume_curve):,}.")
+    elif args.signal_sample:
+        # Phase 3 smoke path: evaluates whether Phase 2 proxy features have
+        # short-horizon predictive value before adaptive execution uses them.
+        input_path, data = _load_processed_csv(args.input_csv)
+        featured = add_microstructure_features(data)
+        signal_data = add_forward_returns(featured, DEFAULT_HORIZONS)
+        results = evaluate_signals(signal_data)
+
+        ranked = results.sort_values(
+            ["information_coefficient", "hit_rate"],
+            ascending=False,
+        )
+        display_cols = [
+            "signal",
+            "horizon",
+            "n_obs",
+            "information_coefficient",
+            "hit_rate",
+            "decile_spread",
+        ]
+
+        print(f"Loaded {len(signal_data):,} processed bars from {input_path}.")
+        print(f"Evaluated {len(results):,} signal-horizon combinations.")
+        print(ranked[display_cols].head(12).to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
+        print("Phase 3 signal evaluation is available. Use --signal-sample to test signals.")
 
 
 if __name__ == "__main__":
