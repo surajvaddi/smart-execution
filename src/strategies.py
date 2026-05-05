@@ -90,6 +90,24 @@ class TWAPStrategy(ExecutionStrategy):
     # Evenly allocates quantity across time bars.
     name = "TWAP"
 
+    def generate_child_orders(self, order: ParentOrder, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate an even time-weighted schedule across the execution window."""
+        window = self.market_window(order, data)
+        n_bars = len(window)
+        base_quantity = order.quantity / n_bars
+        quantities = [base_quantity] * n_bars
+
+        # Floating point division can leave tiny residuals. Adjust the final
+        # child order so the TWAP schedule exactly sums to the parent quantity.
+        quantities[-1] += order.quantity - sum(quantities)
+
+        return self.child_order_frame(
+            order=order,
+            timestamps=window.index,
+            quantities=quantities,
+            reference_prices=window["close"].tolist(),
+        )
+
 
 class VWAPStrategy(ExecutionStrategy):
     # Allocates quantity using the historical volume curve from Phase 2.
