@@ -47,6 +47,11 @@ def parse_args() -> argparse.Namespace:
         default="data/processed/SPY_5d_5m.csv",
         help="Processed CSV to use with --feature-sample.",
     )
+    parser.add_argument(
+        "--signal-output-csv",
+        default=None,
+        help="Optional CSV path for --signal-sample results.",
+    )
     return parser.parse_args()
 
 
@@ -55,6 +60,11 @@ def _load_processed_csv(input_csv: str) -> tuple[Path, pd.DataFrame]:
     input_path = Path(input_csv)
     data = pd.read_csv(input_path, index_col=0, parse_dates=True)
     return input_path, data
+
+
+def _default_signal_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for signal evaluation output."""
+    return Path("reports") / f"signal_evaluation_{input_path.stem}.csv"
 
 
 def main() -> None:
@@ -94,6 +104,13 @@ def main() -> None:
         featured = add_microstructure_features(data)
         signal_data = add_forward_returns(featured, DEFAULT_HORIZONS)
         results = evaluate_signals(signal_data)
+        output_path = (
+            Path(args.signal_output_csv)
+            if args.signal_output_csv
+            else _default_signal_output_path(input_path)
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        results.to_csv(output_path, index=False)
 
         ranked = results.sort_values(
             ["information_coefficient", "hit_rate"],
@@ -110,6 +127,7 @@ def main() -> None:
 
         print(f"Loaded {len(signal_data):,} processed bars from {input_path}.")
         print(f"Evaluated {len(results):,} signal-horizon combinations.")
+        print(f"Saved signal evaluation results to {output_path}.")
         print(ranked[display_cols].head(12).to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")

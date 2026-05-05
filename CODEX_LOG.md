@@ -74,3 +74,15 @@ Comments:
 - Clarified the Yahoo Finance OHLCV limitation directly in `src/data_loader.py` and `src/features.py`.
 - Documented the cleaned data schema contract, raw versus processed saves, per-ticker feature grouping, rolling-window `NaN` behavior, proxy feature interpretation, and CLI smoke-check purpose.
 - Added phase-boundary comments to placeholder modules so future implementation work has clear contracts.
+
+### Phase 3: Alpha Signal Research
+
+- Added safer signal metric utilities in `src/signals.py`:
+  - finite signal/target filtering
+  - `information_coefficient()`
+  - `hit_rate()`
+  - `decile_spread()`
+- Added default signal columns and forward-return horizons for the README's signal research plan.
+- Added `evaluate_signals()` to produce one result row per signal and prediction horizon.
+- Added `main.py --signal-sample` to run the offline signal research path from a processed CSV.
+- Added CSV output for signal evaluation results under `reports/`.
