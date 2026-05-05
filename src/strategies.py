@@ -9,6 +9,7 @@ from __future__ import annotations
 import pandas as pd
 
 from src.execution import ParentOrder, filter_execution_window
+from src.features import estimate_volume_curve
 
 
 CHILD_ORDER_COLUMNS = [
@@ -112,6 +113,28 @@ class TWAPStrategy(ExecutionStrategy):
 class VWAPStrategy(ExecutionStrategy):
     # Allocates quantity using the historical volume curve from Phase 2.
     name = "VWAP"
+
+    def generate_child_orders(self, order: ParentOrder, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate a volume-weighted schedule using the historical volume curve."""
+        window = self.market_window(order, data)
+        volume_curve = estimate_volume_curve(data)
+
+        expected_shares = window["bar_index"].map(volume_curve).fillna(0.0)
+        window_share_total = expected_shares.sum()
+        if window_share_total <= 0:
+            raise ValueError(f"No positive expected volume shares for parent order {order.order_id}.")
+
+        # Renormalize inside the execution window. The full-day volume curve sums
+        # to one, but a parent order may cover only part of the day.
+        quantities = (order.quantity * expected_shares / window_share_total).tolist()
+        quantities[-1] += order.quantity - sum(quantities)
+
+        return self.child_order_frame(
+            order=order,
+            timestamps=window.index,
+            quantities=quantities,
+            reference_prices=window["close"].tolist(),
+        )
 
 
 class POVStrategy(ExecutionStrategy):
