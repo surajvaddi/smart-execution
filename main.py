@@ -23,6 +23,7 @@ from src.signals import (
     signal_decay_table,
     signal_quality_summary,
 )
+from src.strategies import TWAPStrategy
 
 
 DEFAULT_TICKERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
@@ -55,9 +56,19 @@ def parse_args() -> argparse.Namespace:
         help="Generate Phase 4 parent orders for a processed sample CSV.",
     )
     parser.add_argument(
+        "--twap-sample",
+        action="store_true",
+        help="Generate a Phase 5 TWAP child-order schedule for one parent order.",
+    )
+    parser.add_argument(
         "--orders-output-csv",
         default=None,
         help="Optional CSV path for --orders-sample parent orders.",
+    )
+    parser.add_argument(
+        "--twap-output-csv",
+        default=None,
+        help="Optional CSV path for --twap-sample child orders.",
     )
     parser.add_argument(
         "--input-csv",
@@ -117,6 +128,11 @@ def _default_signal_notes_output_path(input_path: Path) -> Path:
 def _default_orders_output_path(input_path: Path) -> Path:
     """Create a stable default report path for generated parent orders."""
     return Path("reports") / f"parent_orders_{input_path.stem}.csv"
+
+
+def _default_twap_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for a TWAP sample schedule."""
+    return Path("reports") / f"twap_child_orders_{input_path.stem}.csv"
 
 
 def _write_signal_notes(
@@ -287,11 +303,33 @@ def main() -> None:
         print(f"Generated {len(orders):,} parent orders.")
         print(f"Saved parent orders to {output_path}.")
         print(orders_frame.head(12).to_string(index=False))
+    elif args.twap_sample:
+        # Phase 5 TWAP smoke path only. It intentionally runs one parent order so
+        # the child schedule is easy to inspect before other strategies exist.
+        input_path, data = _load_processed_csv(args.input_csv)
+        order = generate_parent_orders(data, max_orders_per_ticker=1)[0]
+        child_orders = TWAPStrategy().generate_child_orders(order, data)
+        output_path = (
+            Path(args.twap_output_csv)
+            if args.twap_output_csv
+            else _default_twap_output_path(input_path)
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        child_orders.to_csv(output_path, index=False)
+
+        print(f"Loaded {len(data):,} processed bars from {input_path}.")
+        print(f"Generated TWAP schedule for parent order {order.order_id}.")
+        print(f"Child orders: {len(child_orders):,}.")
+        print(f"Parent quantity: {order.quantity:,.6f}.")
+        print(f"Child quantity sum: {child_orders['quantity'].sum():,.6f}.")
+        print(f"Saved TWAP child orders to {output_path}.")
+        print(child_orders.head(8).to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
         print("Phase 3 signal evaluation is available. Use --signal-sample to test signals.")
         print("Phase 4 parent order generation is available. Use --orders-sample to test orders.")
+        print("Phase 5 TWAP generation is available. Use --twap-sample to test TWAP.")
 
 
 if __name__ == "__main__":
