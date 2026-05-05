@@ -28,3 +28,19 @@
 - Verified `python3 main.py --download-sample --ticker SPY --period 5d --interval 5m` with network access.
 - Saved sample files to `data/raw/SPY_5d_5m.csv` and `data/processed/SPY_5d_5m.csv`.
 - Added `numexpr>=2.7.3` to avoid pandas runtime warnings in this environment.
+
+### Phase 2: Microstructure Proxy Features
+
+- Implemented `src/features.py` feature generation for:
+  - `spread_proxy`
+  - `signed_volume`
+  - `ofi_proxy`
+  - `rolling_vol`
+  - `volume_zscore`
+  - `momentum_3`
+  - `reversal_3`
+  - `liquidity_score`
+  - `alpha_signal`
+- Added base schema and feature output validation helpers.
+- Added `estimate_volume_curve()` for VWAP schedule support.
+- Added `main.py --feature-sample` to compute features from a processed CSV and print a validation summary.

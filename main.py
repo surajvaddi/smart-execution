@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
+
+import pandas as pd
 
 from src.backtester import Backtester
 from src.data_loader import load_and_save_intraday_data
+from src.features import add_microstructure_features, estimate_volume_curve
 
 
 DEFAULT_TICKERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
@@ -22,6 +26,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ticker", default="SPY", help="Ticker to download in sample mode.")
     parser.add_argument("--period", default="5d", help="Yahoo Finance period for sample mode.")
     parser.add_argument("--interval", default="5m", help="Yahoo Finance interval for sample mode.")
+    parser.add_argument(
+        "--feature-sample",
+        action="store_true",
+        help="Compute Phase 2 features for a processed sample CSV.",
+    )
+    parser.add_argument(
+        "--input-csv",
+        default="data/processed/SPY_5d_5m.csv",
+        help="Processed CSV to use with --feature-sample.",
+    )
     return parser.parse_args()
 
 
@@ -42,8 +56,19 @@ def main() -> None:
         print(f"Downloaded {len(processed):,} cleaned bars for {args.ticker.upper()}.")
         print(f"Raw data: {raw_path}")
         print(f"Processed data: {processed_path}")
+    elif args.feature_sample:
+        input_path = Path(args.input_csv)
+        data = pd.read_csv(input_path, index_col=0, parse_dates=True)
+        featured = add_microstructure_features(data)
+        volume_curve = estimate_volume_curve(featured)
+
+        non_null_alpha = featured["alpha_signal"].notna().sum()
+        print(f"Loaded {len(featured):,} processed bars from {input_path}.")
+        print(f"Added Phase 2 features. Non-null alpha_signal rows: {non_null_alpha:,}.")
+        print(f"Estimated volume curve bars: {len(volume_curve):,}.")
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
+        print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
 
 
 if __name__ == "__main__":
