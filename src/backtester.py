@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.execution import ParentOrder
 from src.features import add_microstructure_features
 from src.strategies import AdaptiveStrategy, ExecutionStrategy, POVStrategy, TWAPStrategy, VWAPStrategy
+from src.tca import apply_transaction_cost_model, compute_tca_metrics
 
 
 def default_strategies() -> list[ExecutionStrategy]:
@@ -38,6 +40,17 @@ class Backtester:
         """Load a processed CSV and add Phase 2 features for backtesting."""
         data = pd.read_csv(input_csv, index_col=0, parse_dates=True)
         return add_microstructure_features(data)
+
+    def run_order_strategy(
+        self,
+        order: ParentOrder,
+        strategy: ExecutionStrategy,
+        data: pd.DataFrame,
+    ) -> dict:
+        """Run one parent order through one strategy and return TCA metrics."""
+        child_orders = strategy.generate_child_orders(order, data)
+        enriched_fills = apply_transaction_cost_model(child_orders, data)
+        return compute_tca_metrics(order, enriched_fills, data)
 
     def run(self) -> None:
         """Run the backtest."""
