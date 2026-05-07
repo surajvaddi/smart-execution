@@ -130,9 +130,69 @@ def fill_price_for_child_order(
 
 def apply_transaction_cost_model(fills: pd.DataFrame, market_data: pd.DataFrame) -> pd.DataFrame:
     """Estimate fill prices and cost components for child orders."""
-    # Phase 6 will synthesize bid/ask prices from close and spread_proxy because
-    # Yahoo Finance does not provide quoted markets.
-    raise NotImplementedError("Transaction cost model will be implemented in Phase 6.")
+    required_fills = ["timestamp", "side", "quantity"]
+    missing_fills = [col for col in required_fills if col not in fills.columns]
+    if missing_fills:
+        raise ValueError(f"Missing required fill columns: {missing_fills}")
+
+    quoted_market = add_synthetic_bid_ask(market_data)
+    required_market = [
+        "volume",
+        "mid_price",
+        "synthetic_bid",
+        "synthetic_ask",
+        "half_spread",
+    ]
+    missing_market = [col for col in required_market if col not in quoted_market.columns]
+    if missing_market:
+        raise ValueError(f"Missing required market cost columns: {missing_market}")
+
+    market_lookup = quoted_market[required_market]
+    enriched = fills.copy()
+    enriched = enriched.join(market_lookup, on="timestamp", how="left")
+    if enriched[required_market].isna().any().any():
+        raise ValueError("Some child orders could not be matched to market data timestamps.")
+
+    temporary_impacts = []
+    permanent_impacts = []
+    fill_prices = []
+    spread_costs = []
+
+    for _, row in enriched.iterrows():
+        temporary_impact = temporary_market_impact(
+            mid_price=row["mid_price"],
+            child_quantity=row["quantity"],
+            market_volume=row["volume"],
+        )
+        permanent_impact = permanent_market_impact(
+            mid_price=row["mid_price"],
+            child_quantity=row["quantity"],
+            market_volume=row["volume"],
+        )
+        fill_price = fill_price_for_child_order(
+            side=row["side"],
+            synthetic_bid=row["synthetic_bid"],
+            synthetic_ask=row["synthetic_ask"],
+            temporary_impact=temporary_impact,
+        )
+
+        spread_cost = (
+            row["synthetic_ask"] - row["mid_price"]
+            if row["side"] == "buy"
+            else row["mid_price"] - row["synthetic_bid"]
+        )
+
+        temporary_impacts.append(temporary_impact)
+        permanent_impacts.append(permanent_impact)
+        fill_prices.append(fill_price)
+        spread_costs.append(spread_cost)
+
+    enriched["temporary_impact"] = temporary_impacts
+    enriched["permanent_impact"] = permanent_impacts
+    enriched["impact_cost"] = enriched["temporary_impact"] + enriched["permanent_impact"]
+    enriched["spread_cost"] = spread_costs
+    enriched["fill_price"] = fill_prices
+    return enriched
 
 
 def compute_tca_metrics(order: ParentOrder, fills: pd.DataFrame, market_data: pd.DataFrame) -> dict:
