@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
+import pandas as pd
+
+from src.features import add_microstructure_features
 from src.strategies import AdaptiveStrategy, ExecutionStrategy, POVStrategy, TWAPStrategy, VWAPStrategy
 
 
@@ -29,6 +33,11 @@ class Backtester:
     interval: str = "5m"
     strategies: list[ExecutionStrategy] = field(default_factory=default_strategies)
     max_orders_per_ticker: int | None = 20
+
+    def prepare_data_from_csv(self, input_csv: str | Path) -> pd.DataFrame:
+        """Load a processed CSV and add Phase 2 features for backtesting."""
+        data = pd.read_csv(input_csv, index_col=0, parse_dates=True)
+        return add_microstructure_features(data)
 
     def run(self) -> None:
         """Run the backtest."""
