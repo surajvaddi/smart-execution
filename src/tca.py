@@ -225,6 +225,40 @@ def market_vwap(order: ParentOrder, market_data: pd.DataFrame) -> float:
     return float((window["close"] * window["volume"]).sum() / total_volume)
 
 
+def implementation_shortfall_bps(side: str, avg_fill_price: float, arrival_px: float) -> float:
+    """Return implementation shortfall in basis points."""
+    _validate_price_metric_inputs(side, avg_fill_price, arrival_px)
+    normalized_side = side.lower()
+
+    if normalized_side == "buy":
+        shortfall = avg_fill_price - arrival_px
+    else:
+        shortfall = arrival_px - avg_fill_price
+
+    return float(10_000 * shortfall / arrival_px)
+
+
+def vwap_slippage_bps(side: str, avg_fill_price: float, market_vwap_price: float) -> float:
+    """Return slippage versus market VWAP in basis points."""
+    _validate_price_metric_inputs(side, avg_fill_price, market_vwap_price)
+    normalized_side = side.lower()
+
+    if normalized_side == "buy":
+        slippage = avg_fill_price - market_vwap_price
+    else:
+        slippage = market_vwap_price - avg_fill_price
+
+    return float(10_000 * slippage / market_vwap_price)
+
+
+def _validate_price_metric_inputs(side: str, price_a: float, price_b: float) -> None:
+    """Validate common signed price metric inputs."""
+    if side.lower() not in VALID_TCA_SIDES:
+        raise ValueError(f"side must be one of {sorted(VALID_TCA_SIDES)}, got {side!r}.")
+    if price_a <= 0 or price_b <= 0:
+        raise ValueError("price inputs must be positive.")
+
+
 def _parent_order_market_window(order: ParentOrder, market_data: pd.DataFrame) -> pd.DataFrame:
     """Return ticker/date/time-filtered market data for a parent order."""
     required = ["ticker", "date", "time", "close", "volume"]
