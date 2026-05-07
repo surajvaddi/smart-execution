@@ -297,7 +297,8 @@ def fill_rate(order: ParentOrder, fills: pd.DataFrame) -> float:
     if order.quantity <= 0:
         raise ValueError("order quantity must be positive.")
 
-    return float(fills["quantity"].sum() / order.quantity)
+    raw_fill_rate = fills["quantity"].sum() / order.quantity
+    return float(max(0.0, min(1.0, raw_fill_rate)))
 
 
 def opportunity_cost_bps(
@@ -350,6 +351,43 @@ def _parent_order_market_window(order: ParentOrder, market_data: pd.DataFrame) -
 
 def compute_tca_metrics(order: ParentOrder, fills: pd.DataFrame, market_data: pd.DataFrame) -> dict:
     """Compute one TCA result row for a parent order and strategy."""
-    # Phase 7 will summarize implementation shortfall, VWAP slippage, cost
-    # decomposition, opportunity cost, and fill rate for each parent order.
-    raise NotImplementedError("TCA metrics will be implemented in Phase 7.")
+    if fills.empty:
+        raise ValueError("Cannot compute TCA metrics for empty fills.")
+    required = ["timestamp", "strategy", "quantity", "fill_price", "spread_cost", "impact_cost", "mid_price"]
+    missing = [col for col in required if col not in fills.columns]
+    if missing:
+        raise ValueError(f"Missing required TCA metric columns: {missing}")
+
+    avg_fill = average_fill_price(fills)
+    arrival_px = arrival_price(order, market_data)
+    market_vwap_px = market_vwap(order, market_data)
+    strategy = fills["strategy"].iloc[0]
+    timestamps = pd.to_datetime(fills["timestamp"])
+    execution_duration = timestamps.max() - timestamps.min()
+
+    return {
+        "ticker": order.ticker,
+        "date": order.date,
+        "side": order.side,
+        "quantity": order.quantity,
+        "strategy": strategy,
+        "avg_fill_price": avg_fill,
+        "arrival_price": arrival_px,
+        "market_vwap": market_vwap_px,
+        "implementation_shortfall_bps": implementation_shortfall_bps(
+            order.side,
+            avg_fill,
+            arrival_px,
+        ),
+        "vwap_slippage_bps": vwap_slippage_bps(
+            order.side,
+            avg_fill,
+            market_vwap_px,
+        ),
+        "spread_cost_bps": weighted_cost_bps(fills, "spread_cost", arrival_px),
+        "impact_cost_bps": weighted_cost_bps(fills, "impact_cost", arrival_px),
+        "timing_cost_bps": timing_cost_bps(order, fills, arrival_px),
+        "opportunity_cost_bps": opportunity_cost_bps(order, fills, market_data, arrival_px),
+        "fill_rate": fill_rate(order, fills),
+        "execution_duration": execution_duration,
+    }
