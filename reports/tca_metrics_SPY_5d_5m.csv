@@ -1,0 +1,2 @@
+ticker,date,side,quantity,strategy,avg_fill_price,arrival_price,market_vwap,implementation_shortfall_bps,vwap_slippage_bps,spread_cost_bps,impact_cost_bps,timing_cost_bps,opportunity_cost_bps,fill_rate,execution_duration
+SPY,2026-04-28,buy,765559.536,TWAP,725.7822537019632,711.4451293945312,710.688192551813,201.52115342519022,212.38654741051937,3.581793665019551,218.35693210585566,-11.214199876060018,0.0,1.0,0 days 05:30:00

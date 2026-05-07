@@ -24,7 +24,7 @@ from src.signals import (
     signal_quality_summary,
 )
 from src.strategies import AdaptiveStrategy, POVStrategy, TWAPStrategy, VWAPStrategy
-from src.tca import apply_transaction_cost_model
+from src.tca import apply_transaction_cost_model, compute_tca_metrics
 
 
 DEFAULT_TICKERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
@@ -87,6 +87,11 @@ def parse_args() -> argparse.Namespace:
         help="Apply the Phase 6 transaction cost model to one TWAP schedule.",
     )
     parser.add_argument(
+        "--tca-metrics-sample",
+        action="store_true",
+        help="Compute Phase 7 TCA metrics for one TWAP parent order.",
+    )
+    parser.add_argument(
         "--orders-output-csv",
         default=None,
         help="Optional CSV path for --orders-sample parent orders.",
@@ -120,6 +125,11 @@ def parse_args() -> argparse.Namespace:
         "--tca-output-csv",
         default=None,
         help="Optional CSV path for --tca-sample enriched fills.",
+    )
+    parser.add_argument(
+        "--tca-metrics-output-csv",
+        default=None,
+        help="Optional CSV path for --tca-metrics-sample result row.",
     )
     parser.add_argument(
         "--input-csv",
@@ -209,6 +219,11 @@ def _default_strategy_compare_output_path(input_path: Path) -> Path:
 def _default_tca_output_path(input_path: Path) -> Path:
     """Create a stable default report path for transaction-cost-enriched fills."""
     return Path("reports") / f"tca_fills_{input_path.stem}.csv"
+
+
+def _default_tca_metrics_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for parent-order TCA metrics."""
+    return Path("reports") / f"tca_metrics_{input_path.stem}.csv"
 
 
 def _write_signal_notes(
@@ -594,6 +609,28 @@ def main() -> None:
             .head(8)
             .to_string(index=False)
         )
+    elif args.tca_metrics_sample:
+        # Phase 7 smoke path: compute one parent-order-level TCA result row.
+        # Multi-strategy and multi-order aggregation comes later in backtesting.
+        input_path, data = _load_processed_csv(args.input_csv)
+        featured = add_microstructure_features(data)
+        order = generate_parent_orders(featured, max_orders_per_ticker=1)[0]
+        child_orders = TWAPStrategy().generate_child_orders(order, featured)
+        enriched_fills = apply_transaction_cost_model(child_orders, featured)
+        metrics = compute_tca_metrics(order, enriched_fills, featured)
+        metrics_frame = pd.DataFrame([metrics])
+        output_path = (
+            Path(args.tca_metrics_output_csv)
+            if args.tca_metrics_output_csv
+            else _default_tca_metrics_output_path(input_path)
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        metrics_frame.to_csv(output_path, index=False)
+
+        print(f"Loaded {len(data):,} processed bars from {input_path}.")
+        print(f"Computed TCA metrics for TWAP parent order {order.order_id}.")
+        print(f"Saved TCA metrics to {output_path}.")
+        print(metrics_frame.to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -605,6 +642,7 @@ def main() -> None:
         print("Phase 5 Adaptive generation is available. Use --adaptive-sample to test Adaptive.")
         print("Phase 5 strategy comparison is available. Use --strategy-compare-sample.")
         print("Phase 6 TCA enrichment is available. Use --tca-sample.")
+        print("Phase 7 TCA metrics are available. Use --tca-metrics-sample.")
 
 
 if __name__ == "__main__":

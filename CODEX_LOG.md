@@ -132,3 +132,20 @@ Comments:
 - Added `main.py --tca-sample` to run one TWAP schedule through the Phase 6 cost model and save enriched fills under `reports/`.
 - Validated quote ordering, buy/sell fill direction, nonnegative spread costs, and nonnegative impact costs on the saved SPY sample.
 - Noted that the README default impact parameters produce large estimated impact costs on the current sample; calibration remains a later modeling decision.
+
+### Phase 7: TCA Metrics
+
+- Added parent-order-level TCA helper functions in `src/tca.py`:
+  - `average_fill_price()`
+  - `arrival_price()`
+  - `market_vwap()`
+  - `implementation_shortfall_bps()`
+  - `vwap_slippage_bps()`
+  - `weighted_cost_bps()`
+  - `timing_cost_bps()`
+  - `fill_rate()`
+  - `opportunity_cost_bps()`
+- Implemented `compute_tca_metrics()` to return one result row per parent order and strategy.
+- Added `main.py --tca-metrics-sample` to compute a TWAP parent-order TCA row from the saved SPY sample.
+- Saved sample TCA metrics under `reports/tca_metrics_SPY_5d_5m.csv`.
+- Validated required output columns, positive price fields, fill-rate bounds, nonnegative spread/impact/opportunity costs, and execution duration.
