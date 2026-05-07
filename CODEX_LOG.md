@@ -149,3 +149,15 @@ Comments:
 - Added `main.py --tca-metrics-sample` to compute a TWAP parent-order TCA row from the saved SPY sample.
 - Saved sample TCA metrics under `reports/tca_metrics_SPY_5d_5m.csv`.
 - Validated required output columns, positive price fields, fill-rate bounds, nonnegative spread/impact/opportunity costs, and execution duration.
+
+### Phase 8: Backtest Design
+
+- Expanded `src/backtester.py` with default strategy registration for TWAP, VWAP, POV, and Adaptive.
+- Added backtester configuration fields for strategies and `max_orders_per_ticker`.
+- Added `prepare_data_from_csv()` to load local processed data and apply Phase 2 features.
+- Added `run_order_strategy()` to run one parent order through one strategy, apply transaction costs, and compute TCA metrics.
+- Added `run_single_ticker_csv()` to generate parent orders and run all configured strategies on one processed CSV.
+- Added `summarize_by_strategy()` and `save_results()` for detailed result and aggregate summary CSV output.
+- Added `main.py --backtest-sample` to run a deterministic one-ticker sample backtest across all strategies.
+- Saved sample outputs under `reports/backtest_results_SPY_5d_5m.csv` and `reports/backtest_summary_SPY_5d_5m.csv`.
+- Validated result columns, strategy coverage, summary row count, fill-rate bounds, positive price fields, numeric cost fields, and per-strategy simulation counts.

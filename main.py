@@ -92,6 +92,11 @@ def parse_args() -> argparse.Namespace:
         help="Compute Phase 7 TCA metrics for one TWAP parent order.",
     )
     parser.add_argument(
+        "--backtest-sample",
+        action="store_true",
+        help="Run a Phase 8 one-ticker backtest sample across all strategies.",
+    )
+    parser.add_argument(
         "--orders-output-csv",
         default=None,
         help="Optional CSV path for --orders-sample parent orders.",
@@ -130,6 +135,16 @@ def parse_args() -> argparse.Namespace:
         "--tca-metrics-output-csv",
         default=None,
         help="Optional CSV path for --tca-metrics-sample result row.",
+    )
+    parser.add_argument(
+        "--backtest-results-output-csv",
+        default=None,
+        help="Optional CSV path for --backtest-sample detailed results.",
+    )
+    parser.add_argument(
+        "--backtest-summary-output-csv",
+        default=None,
+        help="Optional CSV path for --backtest-sample strategy summary.",
     )
     parser.add_argument(
         "--input-csv",
@@ -224,6 +239,16 @@ def _default_tca_output_path(input_path: Path) -> Path:
 def _default_tca_metrics_output_path(input_path: Path) -> Path:
     """Create a stable default report path for parent-order TCA metrics."""
     return Path("reports") / f"tca_metrics_{input_path.stem}.csv"
+
+
+def _default_backtest_results_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for sample backtest results."""
+    return Path("reports") / f"backtest_results_{input_path.stem}.csv"
+
+
+def _default_backtest_summary_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for sample backtest summary."""
+    return Path("reports") / f"backtest_summary_{input_path.stem}.csv"
 
 
 def _write_signal_notes(
@@ -631,6 +656,39 @@ def main() -> None:
         print(f"Computed TCA metrics for TWAP parent order {order.order_id}.")
         print(f"Saved TCA metrics to {output_path}.")
         print(metrics_frame.to_string(index=False))
+    elif args.backtest_sample:
+        # Phase 8 smoke path: one processed CSV, limited parent orders, all
+        # registered strategies, one TCA result row per order/strategy pair.
+        input_path, _ = _load_processed_csv(args.input_csv)
+        sample_backtester = Backtester(
+            tickers=backtester.tickers,
+            period=backtester.period,
+            interval=backtester.interval,
+            max_orders_per_ticker=1,
+        )
+        results = sample_backtester.run_single_ticker_csv(input_path)
+        results_path = (
+            Path(args.backtest_results_output_csv)
+            if args.backtest_results_output_csv
+            else _default_backtest_results_output_path(input_path)
+        )
+        summary_path = (
+            Path(args.backtest_summary_output_csv)
+            if args.backtest_summary_output_csv
+            else _default_backtest_summary_output_path(input_path)
+        )
+        saved_results_path, saved_summary_path = sample_backtester.save_results(
+            results,
+            results_path,
+            summary_path,
+        )
+        summary = sample_backtester.summarize_by_strategy(results)
+
+        print(f"Ran sample backtest from {input_path}.")
+        print(f"Detailed result rows: {len(results):,}.")
+        print(f"Saved detailed results to {saved_results_path}.")
+        print(f"Saved strategy summary to {saved_summary_path}.")
+        print(summary.to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -643,6 +701,7 @@ def main() -> None:
         print("Phase 5 strategy comparison is available. Use --strategy-compare-sample.")
         print("Phase 6 TCA enrichment is available. Use --tca-sample.")
         print("Phase 7 TCA metrics are available. Use --tca-metrics-sample.")
+        print("Phase 8 sample backtest is available. Use --backtest-sample.")
 
 
 if __name__ == "__main__":
