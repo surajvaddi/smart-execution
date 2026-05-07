@@ -114,3 +114,21 @@ Comments:
 - Added `main.py --adaptive-sample` and saved Adaptive sample child orders under `reports/`.
 - Added `main.py --strategy-compare-sample` to compare TWAP, VWAP, POV, and Adaptive schedules on the same parent order.
 - Found and fixed a VWAP participation-cap issue during schedule comparison.
+
+### Phase 6: Transaction Cost Model
+
+- Added deterministic synthetic quote helpers in `src/tca.py`:
+  - `synthetic_bid_ask_from_row()`
+  - `add_synthetic_bid_ask()`
+- Synthetic quotes use `close` as mid price and center an OHLCV `spread_proxy` range around it.
+- Added temporary and permanent market impact helper functions using the README parameters:
+  - `eta = 0.10`
+  - `beta = 0.5`
+  - `gamma = 0.02`
+- Added buy/sell fill price logic:
+  - buys fill at synthetic ask plus temporary impact
+  - sells fill at synthetic bid minus temporary impact
+- Implemented `apply_transaction_cost_model()` to enrich child orders with synthetic quotes, impact costs, spread cost, and fill price.
+- Added `main.py --tca-sample` to run one TWAP schedule through the Phase 6 cost model and save enriched fills under `reports/`.
+- Validated quote ordering, buy/sell fill direction, nonnegative spread costs, and nonnegative impact costs on the saved SPY sample.
+- Noted that the README default impact parameters produce large estimated impact costs on the current sample; calibration remains a later modeling decision.

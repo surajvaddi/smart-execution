@@ -24,6 +24,7 @@ from src.signals import (
     signal_quality_summary,
 )
 from src.strategies import AdaptiveStrategy, POVStrategy, TWAPStrategy, VWAPStrategy
+from src.tca import apply_transaction_cost_model
 
 
 DEFAULT_TICKERS = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
@@ -81,6 +82,11 @@ def parse_args() -> argparse.Namespace:
         help="Compare Phase 5 child-order schedules for one parent order.",
     )
     parser.add_argument(
+        "--tca-sample",
+        action="store_true",
+        help="Apply the Phase 6 transaction cost model to one TWAP schedule.",
+    )
+    parser.add_argument(
         "--orders-output-csv",
         default=None,
         help="Optional CSV path for --orders-sample parent orders.",
@@ -109,6 +115,11 @@ def parse_args() -> argparse.Namespace:
         "--strategy-compare-output-csv",
         default=None,
         help="Optional CSV path for --strategy-compare-sample summary.",
+    )
+    parser.add_argument(
+        "--tca-output-csv",
+        default=None,
+        help="Optional CSV path for --tca-sample enriched fills.",
     )
     parser.add_argument(
         "--input-csv",
@@ -193,6 +204,11 @@ def _default_adaptive_output_path(input_path: Path) -> Path:
 def _default_strategy_compare_output_path(input_path: Path) -> Path:
     """Create a stable default report path for strategy schedule comparison."""
     return Path("reports") / f"strategy_schedule_comparison_{input_path.stem}.csv"
+
+
+def _default_tca_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for transaction-cost-enriched fills."""
+    return Path("reports") / f"tca_fills_{input_path.stem}.csv"
 
 
 def _write_signal_notes(
@@ -537,6 +553,47 @@ def main() -> None:
         print(f"Compared schedules for parent order {order.order_id}.")
         print(f"Saved strategy schedule comparison to {output_path}.")
         print(comparison.to_string(index=False))
+    elif args.tca_sample:
+        # Phase 6 TCA smoke path: run one TWAP schedule through the synthetic
+        # bid/ask and impact model. Full parent-order metrics are Phase 7.
+        input_path, data = _load_processed_csv(args.input_csv)
+        featured = add_microstructure_features(data)
+        order = generate_parent_orders(featured, max_orders_per_ticker=1)[0]
+        child_orders = TWAPStrategy().generate_child_orders(order, featured)
+        enriched_fills = apply_transaction_cost_model(child_orders, featured)
+        output_path = (
+            Path(args.tca_output_csv)
+            if args.tca_output_csv
+            else _default_tca_output_path(input_path)
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        enriched_fills.to_csv(output_path, index=False)
+
+        print(f"Loaded {len(data):,} processed bars from {input_path}.")
+        print(f"Applied TCA model to TWAP parent order {order.order_id}.")
+        print(f"Enriched fills: {len(enriched_fills):,}.")
+        print(f"Average fill price: {enriched_fills['fill_price'].mean():,.6f}.")
+        print(f"Average spread cost: {enriched_fills['spread_cost'].mean():,.6f}.")
+        print(f"Average impact cost: {enriched_fills['impact_cost'].mean():,.6f}.")
+        print(f"Saved TCA-enriched fills to {output_path}.")
+        print(
+            enriched_fills[
+                [
+                    "timestamp",
+                    "side",
+                    "strategy",
+                    "quantity",
+                    "mid_price",
+                    "synthetic_bid",
+                    "synthetic_ask",
+                    "fill_price",
+                    "spread_cost",
+                    "impact_cost",
+                ]
+            ]
+            .head(8)
+            .to_string(index=False)
+        )
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -547,6 +604,7 @@ def main() -> None:
         print("Phase 5 POV generation is available. Use --pov-sample to test POV.")
         print("Phase 5 Adaptive generation is available. Use --adaptive-sample to test Adaptive.")
         print("Phase 5 strategy comparison is available. Use --strategy-compare-sample.")
+        print("Phase 6 TCA enrichment is available. Use --tca-sample.")
 
 
 if __name__ == "__main__":
