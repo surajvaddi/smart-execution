@@ -7,10 +7,21 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.execution import ParentOrder
+from src.execution import ParentOrder, generate_parent_orders
 from src.features import add_microstructure_features
 from src.strategies import AdaptiveStrategy, ExecutionStrategy, POVStrategy, TWAPStrategy, VWAPStrategy
 from src.tca import apply_transaction_cost_model, compute_tca_metrics
+
+
+SUMMARY_METRIC_COLUMNS = [
+    "implementation_shortfall_bps",
+    "vwap_slippage_bps",
+    "spread_cost_bps",
+    "impact_cost_bps",
+    "timing_cost_bps",
+    "opportunity_cost_bps",
+    "fill_rate",
+]
 
 
 def default_strategies() -> list[ExecutionStrategy]:
@@ -51,6 +62,63 @@ class Backtester:
         child_orders = strategy.generate_child_orders(order, data)
         enriched_fills = apply_transaction_cost_model(child_orders, data)
         return compute_tca_metrics(order, enriched_fills, data)
+
+    def run_single_ticker_csv(self, input_csv: str | Path) -> pd.DataFrame:
+        """Run all configured strategies on parent orders from one processed CSV."""
+        data = self.prepare_data_from_csv(input_csv)
+        parent_orders = generate_parent_orders(
+            data,
+            max_orders_per_ticker=self.max_orders_per_ticker,
+        )
+        if not parent_orders:
+            raise ValueError(f"No parent orders generated from {input_csv}.")
+
+        results = []
+        for order in parent_orders:
+            for strategy in self.strategies:
+                # Every strategy receives the same feature-enriched data and the
+                # same parent order. This keeps schedule/TCA comparisons fair.
+                results.append(self.run_order_strategy(order, strategy, data))
+
+        return pd.DataFrame(results)
+
+    def summarize_by_strategy(self, results: pd.DataFrame) -> pd.DataFrame:
+        """Aggregate parent-order TCA result rows by strategy."""
+        if results.empty:
+            raise ValueError("Cannot summarize empty backtest results.")
+
+        required = ["strategy", *SUMMARY_METRIC_COLUMNS]
+        missing = [col for col in required if col not in results.columns]
+        if missing:
+            raise ValueError(f"Missing required summary columns: {missing}")
+
+        summary = (
+            results.groupby("strategy")[SUMMARY_METRIC_COLUMNS]
+            .mean()
+            .reset_index()
+        )
+        counts = results.groupby("strategy").size().rename("num_simulations").reset_index()
+        return summary.merge(counts, on="strategy")
+
+    def save_results(
+        self,
+        results: pd.DataFrame,
+        results_path: str | Path,
+        summary_path: str | Path,
+    ) -> tuple[Path, Path]:
+        """Save detailed backtest results and strategy-level summary CSVs."""
+        if results.empty:
+            raise ValueError("Cannot save empty backtest results.")
+
+        results_output = Path(results_path)
+        summary_output = Path(summary_path)
+        results_output.parent.mkdir(parents=True, exist_ok=True)
+        summary_output.parent.mkdir(parents=True, exist_ok=True)
+
+        summary = self.summarize_by_strategy(results)
+        results.to_csv(results_output, index=False)
+        summary.to_csv(summary_output, index=False)
+        return results_output, summary_output
 
     def run(self) -> None:
         """Run the backtest."""
