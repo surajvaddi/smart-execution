@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.execution import ParentOrder
+from src.execution import ParentOrder, parse_time
 
 
 DEFAULT_TEMPORARY_IMPACT_ETA = 0.10
@@ -193,6 +193,55 @@ def apply_transaction_cost_model(fills: pd.DataFrame, market_data: pd.DataFrame)
     enriched["spread_cost"] = spread_costs
     enriched["fill_price"] = fill_prices
     return enriched
+
+
+def average_fill_price(fills: pd.DataFrame) -> float:
+    """Return quantity-weighted average fill price for executed child orders."""
+    required = ["fill_price", "quantity"]
+    missing = [col for col in required if col not in fills.columns]
+    if missing:
+        raise ValueError(f"Missing required average fill columns: {missing}")
+
+    filled_quantity = fills["quantity"].sum()
+    if filled_quantity <= 0:
+        raise ValueError("Cannot compute average fill price with non-positive filled quantity.")
+
+    return float((fills["fill_price"] * fills["quantity"]).sum() / filled_quantity)
+
+
+def arrival_price(order: ParentOrder, market_data: pd.DataFrame) -> float:
+    """Return close price at the parent order start time."""
+    window = _parent_order_market_window(order, market_data)
+    return float(window.iloc[0]["close"])
+
+
+def market_vwap(order: ParentOrder, market_data: pd.DataFrame) -> float:
+    """Return market VWAP over the parent order execution window."""
+    window = _parent_order_market_window(order, market_data)
+    total_volume = window["volume"].sum()
+    if total_volume <= 0:
+        raise ValueError("Cannot compute market VWAP with non-positive market volume.")
+
+    return float((window["close"] * window["volume"]).sum() / total_volume)
+
+
+def _parent_order_market_window(order: ParentOrder, market_data: pd.DataFrame) -> pd.DataFrame:
+    """Return ticker/date/time-filtered market data for a parent order."""
+    required = ["ticker", "date", "time", "close", "volume"]
+    missing = [col for col in required if col not in market_data.columns]
+    if missing:
+        raise ValueError(f"Missing required parent-order market columns: {missing}")
+
+    window = market_data[market_data["ticker"] == order.ticker]
+    if order.date is not None:
+        window = window[window["date"] == order.date]
+
+    bar_times = window["time"].map(parse_time)
+    window = window[(bar_times >= order.start_time) & (bar_times <= order.end_time)]
+    if window.empty:
+        raise ValueError(f"No market data available for parent order {order.order_id}.")
+
+    return window.sort_index()
 
 
 def compute_tca_metrics(order: ParentOrder, fills: pd.DataFrame, market_data: pd.DataFrame) -> dict:
