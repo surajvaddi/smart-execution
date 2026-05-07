@@ -251,6 +251,76 @@ def vwap_slippage_bps(side: str, avg_fill_price: float, market_vwap_price: float
     return float(10_000 * slippage / market_vwap_price)
 
 
+def weighted_cost_bps(fills: pd.DataFrame, cost_col: str, reference_price: float) -> float:
+    """Return quantity-weighted per-share cost in basis points."""
+    required = ["quantity", cost_col]
+    missing = [col for col in required if col not in fills.columns]
+    if missing:
+        raise ValueError(f"Missing required cost columns: {missing}")
+    if reference_price <= 0:
+        raise ValueError("reference_price must be positive.")
+
+    filled_quantity = fills["quantity"].sum()
+    if filled_quantity <= 0:
+        return 0.0
+
+    avg_cost = (fills[cost_col] * fills["quantity"]).sum() / filled_quantity
+    return float(10_000 * avg_cost / reference_price)
+
+
+def timing_cost_bps(order: ParentOrder, fills: pd.DataFrame, arrival_px: float) -> float:
+    """Return quantity-weighted timing cost in basis points."""
+    required = ["quantity", "mid_price"]
+    missing = [col for col in required if col not in fills.columns]
+    if missing:
+        raise ValueError(f"Missing required timing cost columns: {missing}")
+    if arrival_px <= 0:
+        raise ValueError("arrival_px must be positive.")
+
+    filled_quantity = fills["quantity"].sum()
+    if filled_quantity <= 0:
+        return 0.0
+
+    if order.side == "buy":
+        per_share_timing = fills["mid_price"] - arrival_px
+    else:
+        per_share_timing = arrival_px - fills["mid_price"]
+
+    avg_timing = (per_share_timing * fills["quantity"]).sum() / filled_quantity
+    return float(10_000 * avg_timing / arrival_px)
+
+
+def fill_rate(order: ParentOrder, fills: pd.DataFrame) -> float:
+    """Return filled quantity divided by parent order quantity."""
+    if "quantity" not in fills.columns:
+        raise ValueError("Missing required fill-rate column: quantity")
+    if order.quantity <= 0:
+        raise ValueError("order quantity must be positive.")
+
+    return float(fills["quantity"].sum() / order.quantity)
+
+
+def opportunity_cost_bps(
+    order: ParentOrder,
+    fills: pd.DataFrame,
+    market_data: pd.DataFrame,
+    arrival_px: float,
+) -> float:
+    """Return opportunity cost for unfilled shares in basis points."""
+    if arrival_px <= 0:
+        raise ValueError("arrival_px must be positive.")
+
+    unfilled_quantity = max(order.quantity - fills["quantity"].sum(), 0.0)
+    if unfilled_quantity == 0:
+        return 0.0
+
+    window = _parent_order_market_window(order, market_data)
+    close_at_end = float(window.iloc[-1]["close"])
+    opportunity_cost = unfilled_quantity * abs(close_at_end - arrival_px)
+    notional = order.quantity * arrival_px
+    return float(10_000 * opportunity_cost / notional)
+
+
 def _validate_price_metric_inputs(side: str, price_a: float, price_b: float) -> None:
     """Validate common signed price metric inputs."""
     if side.lower() not in VALID_TCA_SIDES:
