@@ -15,7 +15,7 @@ import pandas as pd
 from src.backtester import Backtester
 from src.data_loader import load_and_save_intraday_data
 from src.features import add_microstructure_features, estimate_volume_curve
-from src.execution import generate_parent_orders, parent_orders_to_frame
+from src.execution import generate_parent_orders, parent_orders_to_frame, parse_time
 from src.signals import (
     DEFAULT_HORIZONS,
     add_forward_returns,
@@ -152,6 +152,26 @@ def parse_args() -> argparse.Namespace:
         help="Processed CSV to use with --feature-sample.",
     )
     parser.add_argument(
+        "--start-date",
+        default=None,
+        help="Inclusive start date filter for processed CSV commands, YYYY-MM-DD.",
+    )
+    parser.add_argument(
+        "--end-date",
+        default=None,
+        help="Inclusive end date filter for processed CSV commands, YYYY-MM-DD.",
+    )
+    parser.add_argument(
+        "--start-time",
+        default=None,
+        help="Inclusive start time filter for processed CSV commands, HH:MM.",
+    )
+    parser.add_argument(
+        "--end-time",
+        default=None,
+        help="Inclusive end time filter for processed CSV commands, HH:MM.",
+    )
+    parser.add_argument(
         "--signal-output-csv",
         default=None,
         help="Optional CSV path for --signal-sample results.",
@@ -171,14 +191,74 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional markdown path for --signal-sample interpretation notes.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    _validate_filter_args(parser, args)
+    return args
 
 
-def _load_processed_csv(input_csv: str) -> tuple[Path, pd.DataFrame]:
+def _validate_filter_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Require date and time filters to be provided as explicit start/end pairs."""
+    if bool(args.start_date) != bool(args.end_date):
+        parser.error("--start-date and --end-date must be provided together.")
+    if bool(args.start_time) != bool(args.end_time):
+        parser.error("--start-time and --end-time must be provided together.")
+
+
+def _load_processed_csv(
+    input_csv: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
+) -> tuple[Path, pd.DataFrame]:
     """Load a processed data-loader CSV for offline phase smoke checks."""
     input_path = Path(input_csv)
     data = pd.read_csv(input_path, index_col=0, parse_dates=True)
+    data = _filter_processed_data(data, start_date, end_date, start_time, end_time)
     return input_path, data
+
+
+def _filter_processed_data(
+    data: pd.DataFrame,
+    start_date: str | None,
+    end_date: str | None,
+    start_time: str | None,
+    end_time: str | None,
+) -> pd.DataFrame:
+    """Apply optional inclusive date and time filters to processed market data."""
+    filtered = data.copy()
+
+    if start_date and end_date:
+        start = pd.to_datetime(start_date).date()
+        end = pd.to_datetime(end_date).date()
+        if start > end:
+            raise ValueError("--start-date must be on or before --end-date.")
+        filtered_dates = pd.to_datetime(filtered["date"]).dt.date
+        filtered = filtered[(filtered_dates >= start) & (filtered_dates <= end)]
+
+    if start_time and end_time:
+        start = parse_time(start_time)
+        end = parse_time(end_time)
+        if start > end:
+            raise ValueError("--start-time must be on or before --end-time.")
+        filtered_times = filtered["time"].map(parse_time)
+        filtered = filtered[(filtered_times >= start) & (filtered_times <= end)]
+
+    if filtered.empty:
+        raise ValueError("No rows remain after applying date/time filters.")
+
+    return filtered
+
+
+def _load_processed_csv_from_args(args: argparse.Namespace) -> tuple[Path, pd.DataFrame]:
+    """Load a processed CSV using the CLI's optional date/time filters."""
+    return _load_processed_csv(
+        input_csv=args.input_csv,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        start_time=args.start_time,
+        end_time=args.end_time,
+    )
 
 
 def _default_signal_output_path(input_path: Path) -> Path:
@@ -364,7 +444,7 @@ def main() -> None:
     elif args.feature_sample:
         # Phase 2 smoke path: stays offline by reading a processed CSV and then
         # validating the feature pipeline against saved sample data.
-        input_path, data = _load_processed_csv(args.input_csv)
+        input_path, data = _load_processed_csv_from_args(args)
         featured = add_microstructure_features(data)
         volume_curve = estimate_volume_curve(featured)
 
@@ -375,7 +455,7 @@ def main() -> None:
     elif args.signal_sample:
         # Phase 3 smoke path: evaluates whether Phase 2 proxy features have
         # short-horizon predictive value before adaptive execution uses them.
-        input_path, data = _load_processed_csv(args.input_csv)
+        input_path, data = _load_processed_csv_from_args(args)
         featured = add_microstructure_features(data)
         signal_data = add_forward_returns(featured, DEFAULT_HORIZONS)
         results = evaluate_signals(signal_data)
@@ -435,7 +515,7 @@ def main() -> None:
     elif args.orders_sample:
         # Phase 4 smoke path: creates parent orders from available market dates.
         # Strategies in Phase 5 will all consume this same order set.
-        input_path, data = _load_processed_csv(args.input_csv)
+        input_path, data = _load_processed_csv_from_args(args)
         orders = generate_parent_orders(data)
         orders_frame = parent_orders_to_frame(orders)
 
@@ -456,7 +536,7 @@ def main() -> None:
     elif args.twap_sample:
         # Phase 5 TWAP smoke path only. It intentionally runs one parent order so
         # the child schedule is easy to inspect before other strategies exist.
-        input_path, data = _load_processed_csv(args.input_csv)
+        input_path, data = _load_processed_csv_from_args(args)
         order = generate_parent_orders(data, max_orders_per_ticker=1)[0]
         child_orders = TWAPStrategy().generate_child_orders(order, data)
         output_path = (
@@ -477,7 +557,7 @@ def main() -> None:
     elif args.vwap_sample:
         # Phase 5 VWAP smoke path only. It uses the historical volume curve from
         # Phase 2 and saves one child schedule for inspection.
-        input_path, data = _load_processed_csv(args.input_csv)
+        input_path, data = _load_processed_csv_from_args(args)
         order = generate_parent_orders(data, max_orders_per_ticker=1)[0]
         child_orders = VWAPStrategy().generate_child_orders(order, data)
         output_path = (
@@ -500,7 +580,7 @@ def main() -> None:
     elif args.pov_sample:
         # Phase 5 POV smoke path only. POV trades as a capped share of realized
         # bar volume, so fill rate is an important validation output.
-        input_path, data = _load_processed_csv(args.input_csv)
+        input_path, data = _load_processed_csv_from_args(args)
         order = generate_parent_orders(data, max_orders_per_ticker=1)[0]
         strategy = POVStrategy()
         child_orders = strategy.generate_child_orders(order, data)
@@ -530,7 +610,7 @@ def main() -> None:
     elif args.adaptive_sample:
         # Phase 5 Adaptive smoke path only. Adaptive needs Phase 2 features, so
         # this path enriches the processed data before generating child orders.
-        input_path, data = _load_processed_csv(args.input_csv)
+        input_path, data = _load_processed_csv_from_args(args)
         featured = add_microstructure_features(data)
         order = generate_parent_orders(featured, max_orders_per_ticker=1)[0]
         strategy = AdaptiveStrategy()
@@ -561,7 +641,7 @@ def main() -> None:
     elif args.strategy_compare_sample:
         # Phase 5 comparison path: same parent order, same market data, all
         # implemented strategies. This compares schedules only, not TCA quality.
-        input_path, data = _load_processed_csv(args.input_csv)
+        input_path, data = _load_processed_csv_from_args(args)
         featured = add_microstructure_features(data)
         order = generate_parent_orders(featured, max_orders_per_ticker=1)[0]
         strategies = [TWAPStrategy(), VWAPStrategy(), POVStrategy(), AdaptiveStrategy()]
@@ -596,7 +676,7 @@ def main() -> None:
     elif args.tca_sample:
         # Phase 6 TCA smoke path: run one TWAP schedule through the synthetic
         # bid/ask and impact model. Full parent-order metrics are Phase 7.
-        input_path, data = _load_processed_csv(args.input_csv)
+        input_path, data = _load_processed_csv_from_args(args)
         featured = add_microstructure_features(data)
         order = generate_parent_orders(featured, max_orders_per_ticker=1)[0]
         child_orders = TWAPStrategy().generate_child_orders(order, featured)
@@ -637,7 +717,7 @@ def main() -> None:
     elif args.tca_metrics_sample:
         # Phase 7 smoke path: compute one parent-order-level TCA result row.
         # Multi-strategy and multi-order aggregation comes later in backtesting.
-        input_path, data = _load_processed_csv(args.input_csv)
+        input_path, data = _load_processed_csv_from_args(args)
         featured = add_microstructure_features(data)
         order = generate_parent_orders(featured, max_orders_per_ticker=1)[0]
         child_orders = TWAPStrategy().generate_child_orders(order, featured)
@@ -659,14 +739,14 @@ def main() -> None:
     elif args.backtest_sample:
         # Phase 8 smoke path: one processed CSV, limited parent orders, all
         # registered strategies, one TCA result row per order/strategy pair.
-        input_path, _ = _load_processed_csv(args.input_csv)
+        input_path, data = _load_processed_csv_from_args(args)
         sample_backtester = Backtester(
             tickers=backtester.tickers,
             period=backtester.period,
             interval=backtester.interval,
             max_orders_per_ticker=1,
         )
-        results = sample_backtester.run_single_ticker_csv(input_path)
+        results = sample_backtester.run_single_ticker_data(data)
         results_path = (
             Path(args.backtest_results_output_csv)
             if args.backtest_results_output_csv

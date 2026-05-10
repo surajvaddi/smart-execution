@@ -66,12 +66,19 @@ class Backtester:
     def run_single_ticker_csv(self, input_csv: str | Path) -> pd.DataFrame:
         """Run all configured strategies on parent orders from one processed CSV."""
         data = self.prepare_data_from_csv(input_csv)
+        return self.run_single_ticker_data(data)
+
+    def run_single_ticker_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Run all configured strategies on one prepared or processed DataFrame."""
+        if "spread_proxy" not in data.columns:
+            data = add_microstructure_features(data)
+
         parent_orders = generate_parent_orders(
             data,
             max_orders_per_ticker=self.max_orders_per_ticker,
         )
         if not parent_orders:
-            raise ValueError(f"No parent orders generated from {input_csv}.")
+            raise ValueError("No parent orders generated from input data.")
 
         results = []
         for order in parent_orders:

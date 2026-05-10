@@ -161,3 +161,8 @@ Comments:
 - Added `main.py --backtest-sample` to run a deterministic one-ticker sample backtest across all strategies.
 - Saved sample outputs under `reports/backtest_results_SPY_5d_5m.csv` and `reports/backtest_summary_SPY_5d_5m.csv`.
 - Validated result columns, strategy coverage, summary row count, fill-rate bounds, positive price fields, numeric cost fields, and per-strategy simulation counts.
+- Added optional inclusive date/time filters for processed CSV commands:
+  - `--start-date` and `--end-date`
+  - `--start-time` and `--end-time`
+- Enforced paired filter bounds so start date/time cannot be provided without matching end date/time.
+- Updated the sample backtest path to use filtered in-memory data instead of reloading the full CSV.

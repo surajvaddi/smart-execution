@@ -320,6 +320,35 @@ POV
 Adaptive
 ```
 
+### Narrow The Date Or Time Range
+
+Most commands that read `--input-csv` also accept optional inclusive filters:
+
+```bash
+--start-date YYYY-MM-DD
+--end-date YYYY-MM-DD
+--start-time HH:MM
+--end-time HH:MM
+```
+
+Date filters must be provided as a pair. Time filters must also be provided as a pair. For example, this is valid:
+
+```bash
+python3 main.py \
+  --backtest-sample \
+  --input-csv data/processed/SPY_5d_5m.csv \
+  --start-date 2026-04-29 \
+  --end-date 2026-05-01 \
+  --start-time 10:00 \
+  --end-time 14:00
+```
+
+This is rejected because the end date is missing:
+
+```bash
+python3 main.py --backtest-sample --start-date 2026-04-29
+```
+
 ## Reading The Outputs
 
 Best starting points:
