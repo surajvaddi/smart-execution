@@ -110,6 +110,19 @@ class Backtester:
         data = self.prepare_data_from_csv(input_csv)
         return self.run_single_ticker_data(data)
 
+    def run_multiple_csvs(self, input_csvs: list[str | Path]) -> pd.DataFrame:
+        """Run independent backtests for multiple processed CSVs and combine results."""
+        if not input_csvs:
+            raise ValueError("At least one input CSV is required.")
+
+        results = []
+        for input_csv in input_csvs:
+            ticker_results = self.run_single_ticker_csv(input_csv)
+            ticker_results["source_csv"] = str(input_csv)
+            results.append(ticker_results)
+
+        return pd.concat(results, ignore_index=True)
+
     def run_single_ticker_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Run all configured strategies on one prepared or processed DataFrame."""
         if "spread_proxy" not in data.columns:
@@ -133,21 +146,33 @@ class Backtester:
 
     def summarize_by_strategy(self, results: pd.DataFrame) -> pd.DataFrame:
         """Aggregate parent-order TCA result rows by strategy."""
+        return self._summarize_results(results, ["strategy"])
+
+    def summarize_by_ticker(self, results: pd.DataFrame) -> pd.DataFrame:
+        """Aggregate parent-order TCA result rows by ticker."""
+        return self._summarize_results(results, ["ticker"])
+
+    def summarize_by_ticker_strategy(self, results: pd.DataFrame) -> pd.DataFrame:
+        """Aggregate parent-order TCA result rows by ticker and strategy."""
+        return self._summarize_results(results, ["ticker", "strategy"])
+
+    def _summarize_results(self, results: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
+        """Aggregate TCA result rows over the requested grouping columns."""
         if results.empty:
             raise ValueError("Cannot summarize empty backtest results.")
 
-        required = ["strategy", *SUMMARY_METRIC_COLUMNS]
+        required = [*group_cols, *SUMMARY_METRIC_COLUMNS]
         missing = [col for col in required if col not in results.columns]
         if missing:
             raise ValueError(f"Missing required summary columns: {missing}")
 
         summary = (
-            results.groupby("strategy")[SUMMARY_METRIC_COLUMNS]
+            results.groupby(group_cols)[SUMMARY_METRIC_COLUMNS]
             .mean()
             .reset_index()
         )
-        counts = results.groupby("strategy").size().rename("num_simulations").reset_index()
-        return summary.merge(counts, on="strategy")
+        counts = results.groupby(group_cols).size().rename("num_simulations").reset_index()
+        return summary.merge(counts, on=group_cols)
 
     def save_results(
         self,
