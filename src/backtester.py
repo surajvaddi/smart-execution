@@ -63,6 +63,37 @@ class Backtester:
             raise ValueError("Combined data must include a ticker column.")
         return combined
 
+    def alignment_report(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Summarize timestamp coverage and missing bars by ticker."""
+        if data.empty:
+            raise ValueError("Cannot build alignment report for empty data.")
+        if "ticker" not in data.columns:
+            raise ValueError("Alignment report requires a ticker column.")
+
+        unique_timestamps = pd.Index(data.index.unique()).sort_values()
+        rows = []
+        for ticker, ticker_data in data.groupby("ticker"):
+            ticker_timestamps = pd.Index(ticker_data.index.unique()).sort_values()
+            missing_timestamps = unique_timestamps.difference(ticker_timestamps)
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "first_timestamp": ticker_timestamps.min(),
+                    "last_timestamp": ticker_timestamps.max(),
+                    "bar_count": len(ticker_data),
+                    "unique_timestamp_count": len(ticker_timestamps),
+                    "common_grid_count": len(unique_timestamps),
+                    "missing_timestamp_count": len(missing_timestamps),
+                    "missing_timestamp_rate": (
+                        len(missing_timestamps) / len(unique_timestamps)
+                        if len(unique_timestamps) > 0
+                        else 0.0
+                    ),
+                }
+            )
+
+        return pd.DataFrame(rows).sort_values("ticker").reset_index(drop=True)
+
     def run_order_strategy(
         self,
         order: ParentOrder,
