@@ -1,0 +1,2 @@
+ticker,first_timestamp,last_timestamp,bar_count,unique_timestamp_count,common_grid_count,missing_timestamp_count,missing_timestamp_rate
+SPY,2026-04-28 09:30:00-04:00,2026-05-04 15:55:00-04:00,778,389,389,0,0.0

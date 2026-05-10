@@ -97,6 +97,22 @@ def parse_args() -> argparse.Namespace:
         help="Run a Phase 8 one-ticker backtest sample across all strategies.",
     )
     parser.add_argument(
+        "--alignment-report",
+        action="store_true",
+        help="Create a timestamp alignment report for multiple processed CSVs.",
+    )
+    parser.add_argument(
+        "--backtest-multi",
+        action="store_true",
+        help="Run an independent multi-CSV backtest across all strategies.",
+    )
+    parser.add_argument(
+        "--download-tickers",
+        nargs="+",
+        default=None,
+        help="Download and save processed data for multiple tickers.",
+    )
+    parser.add_argument(
         "--orders-output-csv",
         default=None,
         help="Optional CSV path for --orders-sample parent orders.",
@@ -147,9 +163,46 @@ def parse_args() -> argparse.Namespace:
         help="Optional CSV path for --backtest-sample strategy summary.",
     )
     parser.add_argument(
+        "--alignment-output-csv",
+        default=None,
+        help="Optional CSV path for --alignment-report output.",
+    )
+    parser.add_argument(
+        "--backtest-multi-results-output-csv",
+        default=None,
+        help="Optional CSV path for --backtest-multi detailed results.",
+    )
+    parser.add_argument(
+        "--backtest-multi-summary-strategy-output-csv",
+        default=None,
+        help="Optional CSV path for --backtest-multi summary by strategy.",
+    )
+    parser.add_argument(
+        "--backtest-multi-summary-ticker-output-csv",
+        default=None,
+        help="Optional CSV path for --backtest-multi summary by ticker.",
+    )
+    parser.add_argument(
+        "--backtest-multi-summary-ticker-strategy-output-csv",
+        default=None,
+        help="Optional CSV path for --backtest-multi summary by ticker and strategy.",
+    )
+    parser.add_argument(
         "--input-csv",
         default="data/processed/SPY_5d_5m.csv",
         help="Processed CSV to use with --feature-sample.",
+    )
+    parser.add_argument(
+        "--input-csvs",
+        nargs="+",
+        default=None,
+        help="Processed CSVs to use with multi-ticker commands.",
+    )
+    parser.add_argument(
+        "--max-orders-per-ticker",
+        type=int,
+        default=1,
+        help="Maximum parent orders per ticker for backtest sample commands.",
     )
     parser.add_argument(
         "--start-date",
@@ -202,6 +255,8 @@ def _validate_filter_args(parser: argparse.ArgumentParser, args: argparse.Namesp
         parser.error("--start-date and --end-date must be provided together.")
     if bool(args.start_time) != bool(args.end_time):
         parser.error("--start-time and --end-time must be provided together.")
+    if (args.alignment_report or args.backtest_multi) and not args.input_csvs:
+        parser.error("--input-csvs is required for --alignment-report and --backtest-multi.")
 
 
 def _load_processed_csv(
@@ -259,6 +314,29 @@ def _load_processed_csv_from_args(args: argparse.Namespace) -> tuple[Path, pd.Da
         start_time=args.start_time,
         end_time=args.end_time,
     )
+
+
+def _require_input_csvs(args: argparse.Namespace) -> list[str]:
+    """Return multi-CSV inputs or raise a clear CLI error."""
+    if not args.input_csvs:
+        raise ValueError("--input-csvs is required for this command.")
+    return args.input_csvs
+
+
+def _load_processed_csvs_from_args(args: argparse.Namespace) -> pd.DataFrame:
+    """Load multiple processed CSVs using the CLI's optional date/time filters."""
+    frames = []
+    for input_csv in _require_input_csvs(args):
+        _, data = _load_processed_csv(
+            input_csv=input_csv,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            start_time=args.start_time,
+            end_time=args.end_time,
+        )
+        frames.append(data)
+
+    return pd.concat(frames).sort_index()
 
 
 def _default_signal_output_path(input_path: Path) -> Path:
@@ -329,6 +407,31 @@ def _default_backtest_results_output_path(input_path: Path) -> Path:
 def _default_backtest_summary_output_path(input_path: Path) -> Path:
     """Create a stable default report path for sample backtest summary."""
     return Path("reports") / f"backtest_summary_{input_path.stem}.csv"
+
+
+def _default_alignment_output_path() -> Path:
+    """Create a stable default report path for multi-ticker alignment output."""
+    return Path("reports") / "alignment_report_multi.csv"
+
+
+def _default_backtest_multi_results_output_path() -> Path:
+    """Create a stable default report path for multi-ticker detailed results."""
+    return Path("reports") / "backtest_results_multi.csv"
+
+
+def _default_backtest_multi_summary_strategy_output_path() -> Path:
+    """Create a stable default report path for multi-ticker strategy summary."""
+    return Path("reports") / "backtest_summary_by_strategy_multi.csv"
+
+
+def _default_backtest_multi_summary_ticker_output_path() -> Path:
+    """Create a stable default report path for multi-ticker ticker summary."""
+    return Path("reports") / "backtest_summary_by_ticker_multi.csv"
+
+
+def _default_backtest_multi_summary_ticker_strategy_output_path() -> Path:
+    """Create a stable default report path for multi-ticker ticker-strategy summary."""
+    return Path("reports") / "backtest_summary_by_ticker_strategy_multi.csv"
 
 
 def _write_signal_notes(
@@ -441,6 +544,28 @@ def main() -> None:
         print(f"Downloaded {len(processed):,} cleaned bars for {args.ticker.upper()}.")
         print(f"Raw data: {raw_path}")
         print(f"Processed data: {processed_path}")
+    elif args.download_tickers:
+        # Multi-ticker download path. Each ticker is saved as its own raw and
+        # processed CSV, which keeps downstream independent backtests explicit.
+        rows = []
+        for ticker in args.download_tickers:
+            processed, raw_path, processed_path = load_and_save_intraday_data(
+                ticker=ticker,
+                period=args.period,
+                interval=args.interval,
+            )
+            rows.append(
+                {
+                    "ticker": ticker.upper(),
+                    "rows": len(processed),
+                    "raw_path": raw_path,
+                    "processed_path": processed_path,
+                }
+            )
+
+        downloads = pd.DataFrame(rows)
+        print(f"Downloaded {len(downloads):,} tickers.")
+        print(downloads.to_string(index=False))
     elif args.feature_sample:
         # Phase 2 smoke path: stays offline by reading a processed CSV and then
         # validating the feature pipeline against saved sample data.
@@ -769,6 +894,92 @@ def main() -> None:
         print(f"Saved detailed results to {saved_results_path}.")
         print(f"Saved strategy summary to {saved_summary_path}.")
         print(summary.to_string(index=False))
+    elif args.alignment_report:
+        # Multi-ticker data quality path: report timestamp coverage before
+        # running cross-ticker comparisons.
+        data = _load_processed_csvs_from_args(args)
+        prepared = add_microstructure_features(data)
+        report = backtester.alignment_report(prepared)
+        output_path = (
+            Path(args.alignment_output_csv)
+            if args.alignment_output_csv
+            else _default_alignment_output_path()
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        report.to_csv(output_path, index=False)
+
+        print(f"Loaded {len(prepared):,} rows across {prepared['ticker'].nunique():,} tickers.")
+        print(f"Saved alignment report to {output_path}.")
+        print(report.to_string(index=False))
+    elif args.backtest_multi:
+        # Independent multi-ticker path: each ticker CSV is backtested on its own,
+        # then detailed TCA rows are concatenated for cross-ticker summaries.
+        input_csvs = _require_input_csvs(args)
+        multi_backtester = Backtester(
+            tickers=backtester.tickers,
+            period=backtester.period,
+            interval=backtester.interval,
+            max_orders_per_ticker=args.max_orders_per_ticker,
+        )
+
+        if args.start_date or args.start_time:
+            frames = []
+            for input_csv in input_csvs:
+                _, data = _load_processed_csv(
+                    input_csv=input_csv,
+                    start_date=args.start_date,
+                    end_date=args.end_date,
+                    start_time=args.start_time,
+                    end_time=args.end_time,
+                )
+                result = multi_backtester.run_single_ticker_data(data)
+                result["source_csv"] = input_csv
+                frames.append(result)
+            results = pd.concat(frames, ignore_index=True)
+        else:
+            results = multi_backtester.run_multiple_csvs(input_csvs)
+
+        summary_by_strategy = multi_backtester.summarize_by_strategy(results)
+        summary_by_ticker = multi_backtester.summarize_by_ticker(results)
+        summary_by_ticker_strategy = multi_backtester.summarize_by_ticker_strategy(results)
+
+        results_path = (
+            Path(args.backtest_multi_results_output_csv)
+            if args.backtest_multi_results_output_csv
+            else _default_backtest_multi_results_output_path()
+        )
+        strategy_path = (
+            Path(args.backtest_multi_summary_strategy_output_csv)
+            if args.backtest_multi_summary_strategy_output_csv
+            else _default_backtest_multi_summary_strategy_output_path()
+        )
+        ticker_path = (
+            Path(args.backtest_multi_summary_ticker_output_csv)
+            if args.backtest_multi_summary_ticker_output_csv
+            else _default_backtest_multi_summary_ticker_output_path()
+        )
+        ticker_strategy_path = (
+            Path(args.backtest_multi_summary_ticker_strategy_output_csv)
+            if args.backtest_multi_summary_ticker_strategy_output_csv
+            else _default_backtest_multi_summary_ticker_strategy_output_path()
+        )
+
+        for output_path, frame in [
+            (results_path, results),
+            (strategy_path, summary_by_strategy),
+            (ticker_path, summary_by_ticker),
+            (ticker_strategy_path, summary_by_ticker_strategy),
+        ]:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            frame.to_csv(output_path, index=False)
+
+        print(f"Ran independent multi-CSV backtest for {len(input_csvs):,} input files.")
+        print(f"Detailed result rows: {len(results):,}.")
+        print(f"Saved detailed results to {results_path}.")
+        print(f"Saved strategy summary to {strategy_path}.")
+        print(f"Saved ticker summary to {ticker_path}.")
+        print(f"Saved ticker-strategy summary to {ticker_strategy_path}.")
+        print(summary_by_ticker_strategy.to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -782,6 +993,9 @@ def main() -> None:
         print("Phase 6 TCA enrichment is available. Use --tca-sample.")
         print("Phase 7 TCA metrics are available. Use --tca-metrics-sample.")
         print("Phase 8 sample backtest is available. Use --backtest-sample.")
+        print("Multi-ticker alignment report is available. Use --alignment-report --input-csvs ...")
+        print("Independent multi-ticker backtest is available. Use --backtest-multi --input-csvs ...")
+        print("Multi-ticker download is available. Use --download-tickers SPY QQQ ...")
 
 
 if __name__ == "__main__":

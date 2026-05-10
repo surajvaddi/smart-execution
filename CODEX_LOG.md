@@ -166,3 +166,16 @@ Comments:
   - `--start-time` and `--end-time`
 - Enforced paired filter bounds so start date/time cannot be provided without matching end date/time.
 - Updated the sample backtest path to use filtered in-memory data instead of reloading the full CSV.
+
+### Multi-Ticker Extension
+
+- Added `prepare_data_from_csvs()` to load, feature-enrich, and concatenate multiple processed CSVs.
+- Added `alignment_report()` to summarize timestamp coverage and missing bars by ticker.
+- Added `run_multiple_csvs()` to run independent per-CSV backtests and concatenate TCA result rows.
+- Added summary helpers by ticker and by ticker-strategy.
+- Added CLI support for:
+  - `--download-tickers`
+  - `--alignment-report --input-csvs ...`
+  - `--backtest-multi --input-csvs ...`
+- Added multi-ticker output files under `reports/` for alignment, detailed results, and strategy/ticker summaries.
+- Documented that this is independent multi-ticker backtesting, not yet shared-clock portfolio execution.

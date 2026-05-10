@@ -349,6 +349,51 @@ This is rejected because the end date is missing:
 python3 main.py --backtest-sample --start-date 2026-04-29
 ```
 
+### Multi-Ticker Commands
+
+Download multiple tickers into separate raw and processed CSVs:
+
+```bash
+python3 main.py \
+  --download-tickers SPY QQQ AAPL MSFT NVDA \
+  --period 5d \
+  --interval 5m
+```
+
+Create a timestamp alignment report across multiple processed CSVs:
+
+```bash
+python3 main.py \
+  --alignment-report \
+  --input-csvs data/processed/SPY_5d_5m.csv data/processed/QQQ_5d_5m.csv
+```
+
+Output:
+
+```text
+reports/alignment_report_multi.csv
+```
+
+Run an independent multi-ticker backtest:
+
+```bash
+python3 main.py \
+  --backtest-multi \
+  --input-csvs data/processed/SPY_5d_5m.csv data/processed/QQQ_5d_5m.csv \
+  --max-orders-per-ticker 1
+```
+
+Outputs:
+
+```text
+reports/backtest_results_multi.csv
+reports/backtest_summary_by_strategy_multi.csv
+reports/backtest_summary_by_ticker_multi.csv
+reports/backtest_summary_by_ticker_strategy_multi.csv
+```
+
+This is an independent multi-ticker backtest. It runs each ticker through the execution and TCA pipeline separately, then combines the result rows. It does not yet coordinate child orders on a shared portfolio execution clock.
+
 ## Reading The Outputs
 
 Best starting points:
