@@ -52,6 +52,17 @@ class Backtester:
         data = pd.read_csv(input_csv, index_col=0, parse_dates=True)
         return add_microstructure_features(data)
 
+    def prepare_data_from_csvs(self, input_csvs: list[str | Path]) -> pd.DataFrame:
+        """Load and combine multiple processed CSVs with Phase 2 features."""
+        if not input_csvs:
+            raise ValueError("At least one input CSV is required.")
+
+        prepared = [self.prepare_data_from_csv(path) for path in input_csvs]
+        combined = pd.concat(prepared).sort_index()
+        if "ticker" not in combined.columns:
+            raise ValueError("Combined data must include a ticker column.")
+        return combined
+
     def run_order_strategy(
         self,
         order: ParentOrder,
