@@ -205,3 +205,12 @@ Comments:
 - Schedule algorithms still answer when and how much to trade; placement styles now answer where the child order is posted.
 - The first fill simulator is intentionally deterministic because the project still uses OHLCV data rather than real order book depth or queue position.
 - `market` placement remains the backwards-compatible path, while passive and pegged styles can now miss or partially fill and create opportunity cost.
+
+### Fill Simulator Tests
+
+- Added standard-library `unittest` coverage under `tests/test_fill_simulator.py`.
+- Covered side-aware placement prices for passive, aggressive, midpoint, and market orders.
+- Covered passive buy and sell touch rules using OHLCV high/low bars.
+- Covered passive partial fills and missed fills.
+- Added a regression check that `market` placement matches the legacy transaction cost model.
+- Added a zero-fill TCA check so fully missed limit orders still produce a valid metrics row with opportunity cost.
