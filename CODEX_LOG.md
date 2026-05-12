@@ -220,3 +220,12 @@ Comments:
 - Removed tracked Python bytecode files from `src/__pycache__/`.
 - Confirmed `.gitignore` already ignores `__pycache__/` and `*.py[cod]` so new Python cache files should stay out of future commits.
 - Confirmed the execution-grid plan document, CSV reports, and fill-simulator tests are tracked project artifacts rather than ignored local cache files.
+
+### Fill Realism Improvement
+
+- Added `queue_weighted_touch` as an optional fill model alongside the default `volume_capped_touch` model.
+- Kept market and marketable-limit orders as immediate full fills for backward-compatible behavior.
+- Added touch-depth, queue-priority, and fill-probability proxy outputs for simulated fills.
+- Scaled touched limit-order capacity by bar depth and placement queue priority under the queue-weighted model.
+- Updated the CLI `--fill-model` choices to support both fill models.
+- Added tests proving queue-weighted passive fills are more conservative while market fills remain full-size.

@@ -55,7 +55,7 @@ V1 supports:
 
 ## Fill Simulation
 
-The V1 fill model is deterministic and OHLCV-based:
+The default V1 fill model, `volume_capped_touch`, is deterministic and OHLCV-based:
 
 - Market orders always fill the submitted quantity.
 - Marketable limits fill the submitted quantity.
@@ -67,6 +67,14 @@ The V1 fill model is deterministic and OHLCV-based:
 This is not a queue-position model. It is a first fill simulator that creates
 realistic differences between marketable and passive placement while still using
 the project's existing OHLCV data contract.
+
+A second model, `queue_weighted_touch`, adds a conservative queue proxy:
+
+- Market and marketable limits still fill immediately.
+- Touched limits are scaled by bar touch depth.
+- Touched limits are also scaled by placement queue priority.
+- Passive and primary-peg orders receive lower priority than midpoint or aggressive limits.
+- The output includes `touch_depth`, `queue_priority`, and `fill_probability` proxy columns.
 
 ## Refactoring
 

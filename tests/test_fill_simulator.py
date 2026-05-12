@@ -152,6 +152,46 @@ class FillSimulatorTest(unittest.TestCase):
         self.assertAlmostEqual(simulated.loc[0, "impact_cost"], legacy.loc[0, "impact_cost"])
         self.assertEqual(simulated.loc[0, "fill_status"], "filled")
 
+    def test_queue_weighted_touch_is_more_conservative_for_passive_orders(self) -> None:
+        """Queue-weighted fills scale touched limit capacity by depth and priority."""
+        base_fills = place_and_simulate_fills(
+            child_orders=self.child_orders("buy"),
+            market_data=self.market_data,
+            placement_style="passive_limit",
+            parent_order=self.parent_order,
+        )
+        queue_fills = place_and_simulate_fills(
+            child_orders=self.child_orders("buy"),
+            market_data=self.market_data,
+            placement_style="passive_limit",
+            parent_order=self.parent_order,
+            fill_model="queue_weighted_touch",
+        )
+
+        self.assertEqual(queue_fills.loc[0, "fill_model"], "queue_weighted_touch")
+        self.assertAlmostEqual(queue_fills.loc[0, "touch_depth"], 1.0 / 6.0)
+        self.assertAlmostEqual(queue_fills.loc[0, "queue_priority"], 0.30)
+        self.assertAlmostEqual(queue_fills.loc[0, "fill_probability"], 0.05)
+        self.assertAlmostEqual(queue_fills.loc[0, "filled_quantity"], 12.5)
+        self.assertLess(
+            queue_fills.loc[0, "filled_quantity"],
+            base_fills.loc[0, "filled_quantity"],
+        )
+
+    def test_queue_weighted_touch_keeps_market_orders_full_fill(self) -> None:
+        """Queue assumptions should not reduce market-order fills."""
+        fills = place_and_simulate_fills(
+            child_orders=self.child_orders("buy"),
+            market_data=self.market_data,
+            placement_style="market",
+            parent_order=self.parent_order,
+            fill_model="queue_weighted_touch",
+        )
+
+        self.assertEqual(fills.loc[0, "fill_status"], "filled")
+        self.assertAlmostEqual(fills.loc[0, "filled_quantity"], 1_000.0)
+        self.assertAlmostEqual(fills.loc[0, "fill_probability"], 1.0)
+
     def test_tca_metrics_support_zero_fills(self) -> None:
         """A fully missed limit placement should still produce a TCA result row."""
         second_timestamp = pd.Timestamp("2026-01-02 10:05:00", tz="America/New_York")

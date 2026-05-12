@@ -15,7 +15,7 @@ import pandas as pd
 from src.backtester import Backtester
 from src.data_loader import load_and_save_intraday_data
 from src.features import add_microstructure_features, estimate_volume_curve
-from src.fill_simulator import DEFAULT_FILL_MODEL, PLACEMENT_STYLES
+from src.fill_simulator import DEFAULT_FILL_MODEL, PLACEMENT_STYLES, VALID_FILL_MODELS
 from src.execution import generate_parent_orders, parent_orders_to_frame, parse_time
 from src.signals import (
     DEFAULT_HORIZONS,
@@ -137,7 +137,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--fill-model",
-        choices=[DEFAULT_FILL_MODEL],
+        choices=sorted(VALID_FILL_MODELS),
         default=DEFAULT_FILL_MODEL,
         help="Fill model to use in execution-grid commands.",
     )

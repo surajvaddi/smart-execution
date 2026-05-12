@@ -91,6 +91,7 @@ Implemented placement and fill simulation:
 - midpoint pegs
 - adaptive limits
 - deterministic OHLCV touch-based fill simulation
+- queue-weighted touch simulation for more conservative limit fills
 
 ## Repository Layout
 
@@ -389,6 +390,27 @@ and Adaptive decide the child-order rate. Placement styles decide whether that
 child order is submitted as marketable, passive, midpoint, pegged, or adaptive
 limit liquidity.
 
+The default fill model is:
+
+```text
+volume_capped_touch
+```
+
+This fills touched limits up to a placement-specific share of available bar
+volume. A more conservative model is also available:
+
+```bash
+python3 main.py \
+  --execution-grid-sample \
+  --input-csv data/processed/SPY_5d_5m.csv \
+  --fill-model queue_weighted_touch
+```
+
+`queue_weighted_touch` still uses OHLCV bars, but it scales touched limit fills
+by how deeply the bar traded through the limit and a queue-priority proxy. It is
+not a real order-book queue model, but it is more conservative than treating
+every touch as equally fillable.
+
 ### Narrow The Date Or Time Range
 
 Most commands that read `--input-csv` also accept optional inclusive filters:
@@ -571,6 +593,7 @@ reports/execution_grid_summary_by_strategy_placement.csv
 - converts child-order intent into market, limit, pegged, or adaptive placements
 - uses synthetic bid/ask prices from the TCA layer
 - simulates full, partial, and missed fills using OHLCV touch rules
+- optionally applies queue-weighted touch depth for more conservative fills
 - preserves submitted quantity separately from filled quantity
 
 ### TCA
@@ -598,7 +621,7 @@ reports/execution_grid_summary_by_strategy_placement.csv
 - Uses OHLCV bars, not full order book data.
 - Synthetic bid/ask prices are deterministic and proxy-based.
 - Impact parameters are not calibrated to real market impact data.
-- Fill simulation is deterministic and bar-based, not a queue-position model.
+- Fill simulation is deterministic and bar-based; `queue_weighted_touch` is a queue proxy, not true order-book queue position.
 - Current CLI sample backtest runs a limited local SPY sample by default.
 - Plotting functions and final report generation are not yet implemented.
 - No interactive frontend exists yet.

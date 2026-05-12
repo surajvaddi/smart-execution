@@ -30,7 +30,8 @@ PLACEMENT_STYLES = [
 ]
 
 DEFAULT_FILL_MODEL = "volume_capped_touch"
-VALID_FILL_MODELS = {DEFAULT_FILL_MODEL}
+QUEUE_WEIGHTED_FILL_MODEL = "queue_weighted_touch"
+VALID_FILL_MODELS = {DEFAULT_FILL_MODEL, QUEUE_WEIGHTED_FILL_MODEL}
 
 
 def add_order_placement(
@@ -132,10 +133,14 @@ def simulate_fills(
     spread_costs = []
     temporary_impacts = []
     permanent_impacts = []
+    touch_depths = []
+    queue_priorities = []
+    fill_probabilities = []
 
     for _, row in fills.iterrows():
         submitted_quantity = float(row["quantity"])
-        filled_quantity = _filled_quantity(row, submitted_quantity)
+        fill_context = _fill_context(row, fill_model)
+        filled_quantity = _filled_quantity(row, submitted_quantity, fill_context)
         unfilled_quantity = max(submitted_quantity - filled_quantity, 0.0)
 
         if filled_quantity <= 0:
@@ -167,6 +172,9 @@ def simulate_fills(
         spread_costs.append(spread_cost)
         temporary_impacts.append(temporary_impact)
         permanent_impacts.append(permanent_impact)
+        touch_depths.append(fill_context["touch_depth"])
+        queue_priorities.append(fill_context["queue_priority"])
+        fill_probabilities.append(fill_context["fill_probability"])
 
     fills["submitted_quantity"] = submitted_quantities
     fills["filled_quantity"] = filled_quantities
@@ -178,6 +186,9 @@ def simulate_fills(
     fills["temporary_impact"] = temporary_impacts
     fills["permanent_impact"] = permanent_impacts
     fills["impact_cost"] = fills["temporary_impact"] + fills["permanent_impact"]
+    fills["touch_depth"] = touch_depths
+    fills["queue_priority"] = queue_priorities
+    fills["fill_probability"] = fill_probabilities
 
     # TCA functions use `quantity` as executed quantity. Preserve the submitted
     # amount separately so reports can show what was missed.
@@ -274,7 +285,49 @@ def _placement_price(row: pd.Series, resolved_style: str) -> tuple[str, float]:
     raise ValueError(f"Unsupported resolved placement style: {resolved_style!r}.")
 
 
-def _filled_quantity(row: pd.Series, submitted_quantity: float) -> float:
+def _fill_context(row: pd.Series, fill_model: str) -> dict[str, float]:
+    """Return touch and queue inputs used by the selected fill model."""
+    resolved_style = str(row["resolved_placement_style"])
+    if resolved_style in {"market", "marketable_limit"}:
+        return {
+            "is_fill_eligible": 1.0,
+            "touch_depth": 1.0,
+            "queue_priority": 1.0,
+            "fill_probability": 1.0,
+        }
+
+    if not _bar_touches_limit(row):
+        return {
+            "is_fill_eligible": 0.0,
+            "touch_depth": 0.0,
+            "queue_priority": 0.0,
+            "fill_probability": 0.0,
+        }
+
+    if fill_model == DEFAULT_FILL_MODEL:
+        return {
+            "is_fill_eligible": 1.0,
+            "touch_depth": 1.0,
+            "queue_priority": 1.0,
+            "fill_probability": 1.0,
+        }
+
+    touch_depth = _touch_depth(row)
+    queue_priority = _queue_priority(resolved_style)
+    fill_probability = max(0.0, min(1.0, touch_depth * queue_priority))
+    return {
+        "is_fill_eligible": 1.0,
+        "touch_depth": touch_depth,
+        "queue_priority": queue_priority,
+        "fill_probability": fill_probability,
+    }
+
+
+def _filled_quantity(
+    row: pd.Series,
+    submitted_quantity: float,
+    fill_context: dict[str, float],
+) -> float:
     """Return simulated filled quantity for one placed child order."""
     if submitted_quantity <= 0:
         return 0.0
@@ -283,7 +336,7 @@ def _filled_quantity(row: pd.Series, submitted_quantity: float) -> float:
     if resolved_style in {"market", "marketable_limit"}:
         return submitted_quantity
 
-    if not _bar_touches_limit(row):
+    if fill_context["is_fill_eligible"] <= 0:
         return 0.0
 
     participation_cap = float(row.get("participation_cap", 0.10))
@@ -299,6 +352,7 @@ def _filled_quantity(row: pd.Series, submitted_quantity: float) -> float:
         "primary_peg": 0.25,
     }.get(resolved_style, 0.25)
     fill_capacity = participation_cap * volume * capacity_multiplier
+    fill_capacity *= fill_context["fill_probability"]
     return float(min(submitted_quantity, fill_capacity))
 
 
@@ -311,6 +365,36 @@ def _bar_touches_limit(row: pd.Series) -> bool:
     if side == "sell":
         return float(row["high"]) >= limit_price
     raise ValueError(f"Unsupported side: {side!r}.")
+
+
+def _touch_depth(row: pd.Series) -> float:
+    """Return how deeply the bar traded through the limit price."""
+    high = float(row["high"])
+    low = float(row["low"])
+    limit_price = float(row["limit_price"])
+    bar_range = high - low
+    if bar_range <= 0:
+        return 1.0
+
+    side = str(row["side"]).lower()
+    if side == "buy":
+        raw_depth = (limit_price - low) / bar_range
+    elif side == "sell":
+        raw_depth = (high - limit_price) / bar_range
+    else:
+        raise ValueError(f"Unsupported side: {side!r}.")
+    return float(max(0.0, min(1.0, raw_depth)))
+
+
+def _queue_priority(resolved_style: str) -> float:
+    """Return a deterministic queue priority proxy for one placement style."""
+    return {
+        "aggressive_limit": 0.85,
+        "midpoint_limit": 0.55,
+        "midpoint_peg": 0.55,
+        "passive_limit": 0.30,
+        "primary_peg": 0.30,
+    }.get(resolved_style, 0.30)
 
 
 def _simulated_fill_price(row: pd.Series, temporary_impact: float) -> float:
