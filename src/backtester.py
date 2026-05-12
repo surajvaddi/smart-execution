@@ -19,6 +19,7 @@ SUMMARY_METRIC_COLUMNS = [
     "vwap_slippage_bps",
     "spread_cost_bps",
     "impact_cost_bps",
+    "adverse_selection_cost_bps",
     "timing_cost_bps",
     "opportunity_cost_bps",
     "fill_rate",

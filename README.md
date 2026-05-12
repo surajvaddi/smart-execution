@@ -75,6 +75,7 @@ Implemented TCA metrics:
 - VWAP slippage bps
 - spread cost bps
 - impact cost bps
+- adverse selection cost bps
 - timing cost bps
 - opportunity cost bps
 - fill rate
@@ -428,6 +429,16 @@ limit order. If the draw is above the modeled probability, the order misses even
 though the bar touched the limit. Market and marketable-limit placements still
 fill immediately.
 
+The fill simulator also records a pessimistic adverse-selection proxy:
+
+- `post_fill_return`: next-bar signed return after the fill, where negative is adverse.
+- `adverse_selection_cost`: per-share cost when a non-marketable limit fill is followed by adverse next-bar movement.
+- `adverse_selection_cost_bps`: TCA summary metric for that cost.
+
+This models the common backtest problem where passive orders appear cheap
+because they fill at favorable prices, but those fills may happen right before
+the market moves against the trade.
+
 ### Narrow The Date Or Time Range
 
 Most commands that read `--input-csv` also accept optional inclusive filters:
@@ -612,6 +623,7 @@ reports/execution_grid_summary_by_strategy_placement.csv
 - simulates full, partial, and missed fills using OHLCV touch rules
 - optionally applies queue-weighted touch depth for more conservative fills
 - optionally applies seeded stochastic fill/no-fill draws for touched limits
+- records next-bar adverse-selection cost for non-marketable limit fills
 - preserves submitted quantity separately from filled quantity
 
 ### TCA

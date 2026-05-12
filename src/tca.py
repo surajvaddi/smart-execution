@@ -402,6 +402,11 @@ def compute_tca_metrics(order: ParentOrder, fills: pd.DataFrame, market_data: pd
         "vwap_slippage_bps": vwap_slippage,
         "spread_cost_bps": weighted_cost_bps(fills, "spread_cost", arrival_px),
         "impact_cost_bps": weighted_cost_bps(fills, "impact_cost", arrival_px),
+        "adverse_selection_cost_bps": (
+            weighted_cost_bps(fills, "adverse_selection_cost", arrival_px)
+            if "adverse_selection_cost" in fills.columns
+            else 0.0
+        ),
         "timing_cost_bps": timing_cost_bps(order, fills, arrival_px),
         "opportunity_cost_bps": opportunity_cost_bps(order, fills, market_data, arrival_px),
         "fill_rate": fill_rate(order, fills),

@@ -89,6 +89,13 @@ A third model, `stochastic_queue_touch`, adds seeded random outcomes:
 - A seeded random draw decides whether each touched limit receives capacity or misses.
 - Output includes `random_seed` and `random_draw` so runs are reproducible and auditable.
 
+The simulator also includes an adverse-selection proxy:
+
+- `post_fill_return` is the next-bar signed return after the fill, where negative is adverse.
+- `adverse_selection_cost` penalizes non-marketable limit fills when the next bar moves against the trade.
+- `adverse_selection_cost_bps` is included in TCA summaries.
+- Market and marketable-limit fills keep this penalty at zero because the current proxy is designed to evaluate passive fill quality.
+
 ## Refactoring
 
 TCA currently assumes every child order fully fills. The refactor is:

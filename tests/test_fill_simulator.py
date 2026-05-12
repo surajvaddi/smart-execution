@@ -252,6 +252,81 @@ class FillSimulatorTest(unittest.TestCase):
         self.assertEqual(fills.loc[0, "fill_status"], "unfilled")
         self.assertAlmostEqual(fills.loc[0, "filled_quantity"], 0.0)
 
+    def test_adverse_selection_cost_penalizes_passive_fills(self) -> None:
+        """A passive buy followed by a lower next bar should record drift cost."""
+        second_timestamp = pd.Timestamp("2026-01-02 10:05:00", tz="America/New_York")
+        market_data = pd.concat(
+            [
+                self.market_data,
+                pd.DataFrame(
+                    {
+                        "ticker": ["XYZ"],
+                        "date": [second_timestamp.date()],
+                        "time": [second_timestamp.time()],
+                        "open": [98.0],
+                        "high": [98.5],
+                        "low": [97.5],
+                        "close": [98.0],
+                        "volume": [10_000.0],
+                        "spread_proxy": [0.02],
+                        "alpha_signal": [0.0],
+                        "liquidity_score": [1.0],
+                        "bar_index": [1],
+                    },
+                    index=pd.Index([second_timestamp], name="timestamp"),
+                ),
+            ]
+        )
+
+        fills = place_and_simulate_fills(
+            child_orders=self.child_orders("buy"),
+            market_data=market_data,
+            placement_style="passive_limit",
+            parent_order=self.parent_order,
+        )
+        metrics = compute_tca_metrics(self.parent_order, fills, market_data)
+
+        self.assertAlmostEqual(fills.loc[0, "next_mid_price"], 98.0)
+        self.assertLess(fills.loc[0, "post_fill_return"], 0.0)
+        self.assertGreater(fills.loc[0, "adverse_selection_cost"], 0.0)
+        self.assertGreater(metrics["adverse_selection_cost_bps"], 0.0)
+
+    def test_market_fills_do_not_get_adverse_selection_penalty(self) -> None:
+        """The pessimistic drift penalty is reserved for non-marketable limits."""
+        second_timestamp = pd.Timestamp("2026-01-02 10:05:00", tz="America/New_York")
+        market_data = pd.concat(
+            [
+                self.market_data,
+                pd.DataFrame(
+                    {
+                        "ticker": ["XYZ"],
+                        "date": [second_timestamp.date()],
+                        "time": [second_timestamp.time()],
+                        "open": [98.0],
+                        "high": [98.5],
+                        "low": [97.5],
+                        "close": [98.0],
+                        "volume": [10_000.0],
+                        "spread_proxy": [0.02],
+                        "alpha_signal": [0.0],
+                        "liquidity_score": [1.0],
+                        "bar_index": [1],
+                    },
+                    index=pd.Index([second_timestamp], name="timestamp"),
+                ),
+            ]
+        )
+
+        fills = place_and_simulate_fills(
+            child_orders=self.child_orders("buy"),
+            market_data=market_data,
+            placement_style="market",
+            parent_order=self.parent_order,
+        )
+
+        self.assertLess(fills.loc[0, "post_fill_return"], 0.0)
+        self.assertAlmostEqual(fills.loc[0, "adverse_selection_cost"], 0.0)
+
     def test_tca_metrics_support_zero_fills(self) -> None:
         """A fully missed limit placement should still produce a TCA result row."""
         second_timestamp = pd.Timestamp("2026-01-02 10:05:00", tz="America/New_York")

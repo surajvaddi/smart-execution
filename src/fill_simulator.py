@@ -173,6 +173,8 @@ def simulate_fills(
     spread_costs = []
     temporary_impacts = []
     permanent_impacts = []
+    post_fill_returns = []
+    adverse_selection_costs = []
     touch_depths = []
     queue_priorities = []
     fill_probabilities = []
@@ -204,7 +206,13 @@ def simulate_fills(
             )
             fill_price = _simulated_fill_price(row, temporary_impact)
             spread_cost = _spread_cost(row, fill_price)
+            post_fill_return = _post_fill_return(row, fill_price)
+            adverse_selection_cost = _adverse_selection_cost(row, fill_price)
             fill_status = "filled" if unfilled_quantity <= 1e-9 else "partial"
+
+        if filled_quantity <= 0:
+            post_fill_return = float("nan")
+            adverse_selection_cost = 0.0
 
         submitted_quantities.append(submitted_quantity)
         filled_quantities.append(filled_quantity)
@@ -214,6 +222,8 @@ def simulate_fills(
         spread_costs.append(spread_cost)
         temporary_impacts.append(temporary_impact)
         permanent_impacts.append(permanent_impact)
+        post_fill_returns.append(post_fill_return)
+        adverse_selection_costs.append(adverse_selection_cost)
         touch_depths.append(fill_context["touch_depth"])
         queue_priorities.append(fill_context["queue_priority"])
         fill_probabilities.append(fill_context["fill_probability"])
@@ -230,6 +240,8 @@ def simulate_fills(
     fills["temporary_impact"] = temporary_impacts
     fills["permanent_impact"] = permanent_impacts
     fills["impact_cost"] = fills["temporary_impact"] + fills["permanent_impact"]
+    fills["post_fill_return"] = post_fill_returns
+    fills["adverse_selection_cost"] = adverse_selection_costs
     fills["touch_depth"] = touch_depths
     fills["queue_priority"] = queue_priorities
     fills["fill_probability"] = fill_probabilities
@@ -272,6 +284,8 @@ def _market_lookup(market_data: pd.DataFrame) -> pd.DataFrame:
     lookup = quoted.reset_index()
     timestamp_col = market_data.index.name or "index"
     lookup = lookup.rename(columns={timestamp_col: "timestamp"})
+    lookup = lookup.sort_values(["ticker", "timestamp"])
+    lookup["next_mid_price"] = lookup.groupby("ticker")["mid_price"].shift(-1)
 
     cols = [
         "timestamp",
@@ -284,6 +298,7 @@ def _market_lookup(market_data: pd.DataFrame) -> pd.DataFrame:
         "half_spread",
         "synthetic_bid",
         "synthetic_ask",
+        "next_mid_price",
     ]
     optional_cols = [col for col in ["alpha_signal", "liquidity_score"] if col in lookup.columns]
     return lookup[cols + optional_cols]
@@ -462,6 +477,38 @@ def _queue_priority(resolved_style: str, fill_config: FillModelConfig) -> float:
         resolved_style,
         fill_config.default_queue_priority,
     )
+
+
+def _post_fill_return(row: pd.Series, fill_price: float) -> float:
+    """Return next-bar signed return after a fill; negative is adverse."""
+    next_mid = row.get("next_mid_price", float("nan"))
+    if pd.isna(next_mid) or fill_price <= 0:
+        return float("nan")
+
+    side = str(row["side"]).lower()
+    if side == "buy":
+        return float((float(next_mid) - fill_price) / fill_price)
+    if side == "sell":
+        return float((fill_price - float(next_mid)) / fill_price)
+    raise ValueError(f"Unsupported side: {side!r}.")
+
+
+def _adverse_selection_cost(row: pd.Series, fill_price: float) -> float:
+    """Return pessimistic next-bar adverse-selection cost per filled share."""
+    resolved_style = str(row["resolved_placement_style"])
+    if resolved_style in {"market", "marketable_limit"}:
+        return 0.0
+
+    next_mid = row.get("next_mid_price", float("nan"))
+    if pd.isna(next_mid):
+        return 0.0
+
+    side = str(row["side"]).lower()
+    if side == "buy":
+        return float(max(fill_price - float(next_mid), 0.0))
+    if side == "sell":
+        return float(max(float(next_mid) - fill_price, 0.0))
+    raise ValueError(f"Unsupported side: {side!r}.")
 
 
 def _simulated_fill_price(row: pd.Series, temporary_impact: float) -> float:

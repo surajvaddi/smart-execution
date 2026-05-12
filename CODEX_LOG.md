@@ -238,3 +238,11 @@ Comments:
 - Added `--random-seed` to execution-grid CLI commands.
 - Updated the backtester to pass the configured random seed into fill simulation.
 - Added tests for configurable deterministic capacity, reproducible stochastic fills, and stochastic misses on touched limits.
+
+### Adverse Selection Proxy
+
+- Added next-bar `post_fill_return` to simulated fills, signed so negative means the fill was followed by adverse price movement.
+- Added `adverse_selection_cost` for non-marketable limit fills that are followed by adverse next-bar movement.
+- Added `adverse_selection_cost_bps` to TCA metrics and backtester summary columns.
+- Kept market and marketable-limit adverse-selection cost at zero because this proxy is intended to evaluate passive fill quality.
+- Added tests for passive adverse-selection penalties and market-fill exclusion.
