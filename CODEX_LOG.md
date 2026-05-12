@@ -246,3 +246,12 @@ Comments:
 - Added `adverse_selection_cost_bps` to TCA metrics and backtester summary columns.
 - Kept market and marketable-limit adverse-selection cost at zero because this proxy is intended to evaluate passive fill quality.
 - Added tests for passive adverse-selection penalties and market-fill exclusion.
+
+### Adaptive Ensemble RL Execution
+
+- Added `src/rl_env.py` with `ExecutionEnv`, `RewardConfig`, discrete action mapping, local single-bar sizing helpers, fill-simulator integration, and no-lookahead state schema.
+- Added `src/rl_policy.py` with `RandomPolicy` and `HeuristicExecutionPolicy`.
+- Added `src/rl_train.py` with state bucketing, epsilon-greedy action selection, Q-learning updates, and Q-table save/load helpers.
+- Added `src/rl_backtester.py` to run an RL policy through parent orders and return comparable TCA rows with `strategy = RLAdaptiveEnsemble`.
+- Added pytest coverage for RL environment stepping, caps, terminal behavior, finite rewards, no-lookahead schema, heuristic policy decisions, and RL TCA result columns.
+- Added `pytest` to `requirements.txt` because the RL tests use pytest directly.

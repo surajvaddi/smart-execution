@@ -95,6 +95,14 @@ Implemented placement and fill simulation:
 - queue-weighted touch simulation for more conservative limit fills
 - seeded stochastic queue-touch simulation for probabilistic limit fills
 
+Implemented RL research layer:
+
+- bar-by-bar `ExecutionEnv` episodes for parent orders
+- discrete ensemble actions across rate and placement choices
+- random and heuristic policies
+- simple tabular Q-learning trainer
+- RL backtest helper that produces comparable TCA rows
+
 ## Repository Layout
 
 ```text
@@ -116,6 +124,10 @@ Implemented placement and fill simulation:
     ├── execution.py
     ├── strategies.py
     ├── fill_simulator.py
+    ├── rl_env.py
+    ├── rl_policy.py
+    ├── rl_train.py
+    ├── rl_backtester.py
     ├── tca.py
     ├── backtester.py
     └── plots.py
@@ -439,6 +451,41 @@ This models the common backtest problem where passive orders appear cheap
 because they fill at favorable prices, but those fills may happen right before
 the market moves against the trade.
 
+### Adaptive Ensemble RL Execution
+
+The RL research layer treats each parent order as a bar-by-bar episode. At each
+bar, an agent observes only current and prior information, then chooses one
+discrete execution action:
+
+```text
+0 = wait
+1 = TWAP-sized marketable child order
+2 = VWAP-sized marketable child order
+3 = POV-sized marketable child order
+4 = Adaptive-sized marketable child order
+5 = passive limit, small quantity
+6 = passive limit, medium quantity
+7 = aggressive limit, small quantity
+8 = aggressive limit, medium quantity
+```
+
+The environment reuses the existing fill simulator and TCA path. This keeps RL
+results comparable with TWAP, VWAP, POV, and Adaptive strategy results while
+leaving the existing baseline APIs unchanged.
+
+Key modules:
+
+```text
+src/rl_env.py         ExecutionEnv and RewardConfig
+src/rl_policy.py      RandomPolicy and HeuristicExecutionPolicy
+src/rl_train.py       small tabular Q-learning utilities
+src/rl_backtester.py  helper for comparable RL TCA result rows
+```
+
+This is a research simulator, not production execution logic. It uses OHLCV
+proxy features, synthetic bid/ask prices, and modeled fills rather than real
+order book queue state.
+
 ### Narrow The Date Or Time Range
 
 Most commands that read `--input-csv` also accept optional inclusive filters:
@@ -645,6 +692,16 @@ reports/execution_grid_summary_by_strategy_placement.csv
 - runs order-strategy simulations
 - saves detailed results and strategy summaries
 - runs execution grids across strategies and placement styles
+
+### RL Research Layer
+
+`src/rl_env.py`, `src/rl_policy.py`, `src/rl_train.py`, `src/rl_backtester.py`
+
+- turns parent orders into bar-by-bar execution episodes
+- exposes a no-lookahead state schema for experimentation
+- chooses among wait, rate-based marketable orders, passive limits, and aggressive limits
+- provides random, heuristic, and tabular Q-learning policy utilities
+- returns RL TCA rows with `strategy = RLAdaptiveEnsemble`
 
 ## Current Limitations
 
