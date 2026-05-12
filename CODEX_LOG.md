@@ -179,3 +179,6 @@ Comments:
   - `--backtest-multi --input-csvs ...`
 - Added multi-ticker output files under `reports/` for alignment, detailed results, and strategy/ticker summaries.
 - Documented that this is independent multi-ticker backtesting, not yet shared-clock portfolio execution.
+- Added execution tape generation for multiple CSVs, saving all child orders with parent-order metadata and notional.
+- Added timestamp-level execution summary grouped by timestamp and strategy, including active tickers, child-order count, total quantity, and total notional.
+- Added `main.py --execution-tape --input-csvs ...` to write `reports/execution_tape_multi.csv` and `reports/execution_summary_by_timestamp_multi.csv`.

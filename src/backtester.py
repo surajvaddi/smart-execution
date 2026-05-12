@@ -144,6 +144,73 @@ class Backtester:
 
         return pd.DataFrame(results)
 
+    def execution_tape_for_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Generate long-form child-order tape for one prepared or processed DataFrame."""
+        if "spread_proxy" not in data.columns:
+            data = add_microstructure_features(data)
+
+        parent_orders = generate_parent_orders(
+            data,
+            max_orders_per_ticker=self.max_orders_per_ticker,
+        )
+        if not parent_orders:
+            raise ValueError("No parent orders generated from input data.")
+
+        tape_parts = []
+        for order in parent_orders:
+            for strategy in self.strategies:
+                child_orders = strategy.generate_child_orders(order, data).copy()
+                child_orders["parent_order_id"] = order.order_id
+                child_orders["parent_date"] = order.date
+                child_orders["parent_quantity"] = order.quantity
+                child_orders["parent_start_time"] = order.start_time
+                child_orders["parent_end_time"] = order.end_time
+                child_orders["participation_cap"] = order.participation_cap
+                child_orders["notional"] = (
+                    child_orders["quantity"] * child_orders["reference_price"]
+                )
+                tape_parts.append(child_orders)
+
+        return pd.concat(tape_parts, ignore_index=True)
+
+    def execution_tape_for_csv(self, input_csv: str | Path) -> pd.DataFrame:
+        """Generate child-order tape for one processed CSV."""
+        data = self.prepare_data_from_csv(input_csv)
+        tape = self.execution_tape_for_data(data)
+        tape["source_csv"] = str(input_csv)
+        return tape
+
+    def execution_tape_for_csvs(self, input_csvs: list[str | Path]) -> pd.DataFrame:
+        """Generate child-order tape for multiple processed CSVs."""
+        if not input_csvs:
+            raise ValueError("At least one input CSV is required.")
+
+        tapes = [self.execution_tape_for_csv(path) for path in input_csvs]
+        return pd.concat(tapes, ignore_index=True)
+
+    def summarize_execution_by_timestamp(self, execution_tape: pd.DataFrame) -> pd.DataFrame:
+        """Aggregate child-order activity by timestamp and strategy."""
+        if execution_tape.empty:
+            raise ValueError("Cannot summarize an empty execution tape.")
+
+        required = ["timestamp", "strategy", "ticker", "quantity", "notional"]
+        missing = [col for col in required if col not in execution_tape.columns]
+        if missing:
+            raise ValueError(f"Missing required execution summary columns: {missing}")
+
+        summary = (
+            execution_tape.groupby(["timestamp", "strategy"])
+            .agg(
+                active_tickers=("ticker", "nunique"),
+                child_orders=("quantity", "size"),
+                total_quantity=("quantity", "sum"),
+                total_notional=("notional", "sum"),
+            )
+            .reset_index()
+            .sort_values(["timestamp", "strategy"])
+        )
+        return summary
+
     def summarize_by_strategy(self, results: pd.DataFrame) -> pd.DataFrame:
         """Aggregate parent-order TCA result rows by strategy."""
         return self._summarize_results(results, ["strategy"])

@@ -394,6 +394,35 @@ reports/backtest_summary_by_ticker_strategy_multi.csv
 
 This is an independent multi-ticker backtest. It runs each ticker through the execution and TCA pipeline separately, then combines the result rows. It does not yet coordinate child orders on a shared portfolio execution clock.
 
+Create a multi-ticker execution tape and timestamp-level activity summary:
+
+```bash
+python3 main.py \
+  --execution-tape \
+  --input-csvs data/processed/SPY_5d_5m.csv data/processed/QQQ_5d_5m.csv \
+  --max-orders-per-ticker 1
+```
+
+Outputs:
+
+```text
+reports/execution_tape_multi.csv
+reports/execution_summary_by_timestamp_multi.csv
+```
+
+The execution tape is a long-form table of generated child orders across tickers and strategies. The timestamp summary aggregates that tape by timestamp and strategy:
+
+```text
+timestamp
+strategy
+active_tickers
+child_orders
+total_quantity
+total_notional
+```
+
+This helps identify when execution is concentrated across multiple assets. It still does not model cross-asset market impact or portfolio risk.
+
 ## Reading The Outputs
 
 Best starting points:

@@ -113,6 +113,11 @@ def parse_args() -> argparse.Namespace:
         help="Download and save processed data for multiple tickers.",
     )
     parser.add_argument(
+        "--execution-tape",
+        action="store_true",
+        help="Create a multi-ticker child-order execution tape and timestamp summary.",
+    )
+    parser.add_argument(
         "--orders-output-csv",
         default=None,
         help="Optional CSV path for --orders-sample parent orders.",
@@ -188,6 +193,16 @@ def parse_args() -> argparse.Namespace:
         help="Optional CSV path for --backtest-multi summary by ticker and strategy.",
     )
     parser.add_argument(
+        "--execution-tape-output-csv",
+        default=None,
+        help="Optional CSV path for --execution-tape child orders.",
+    )
+    parser.add_argument(
+        "--execution-summary-output-csv",
+        default=None,
+        help="Optional CSV path for --execution-tape timestamp summary.",
+    )
+    parser.add_argument(
         "--input-csv",
         default="data/processed/SPY_5d_5m.csv",
         help="Processed CSV to use with --feature-sample.",
@@ -255,8 +270,11 @@ def _validate_filter_args(parser: argparse.ArgumentParser, args: argparse.Namesp
         parser.error("--start-date and --end-date must be provided together.")
     if bool(args.start_time) != bool(args.end_time):
         parser.error("--start-time and --end-time must be provided together.")
-    if (args.alignment_report or args.backtest_multi) and not args.input_csvs:
-        parser.error("--input-csvs is required for --alignment-report and --backtest-multi.")
+    if (args.alignment_report or args.backtest_multi or args.execution_tape) and not args.input_csvs:
+        parser.error(
+            "--input-csvs is required for --alignment-report, --backtest-multi, "
+            "and --execution-tape."
+        )
 
 
 def _load_processed_csv(
@@ -432,6 +450,16 @@ def _default_backtest_multi_summary_ticker_output_path() -> Path:
 def _default_backtest_multi_summary_ticker_strategy_output_path() -> Path:
     """Create a stable default report path for multi-ticker ticker-strategy summary."""
     return Path("reports") / "backtest_summary_by_ticker_strategy_multi.csv"
+
+
+def _default_execution_tape_output_path() -> Path:
+    """Create a stable default report path for multi-ticker execution tape."""
+    return Path("reports") / "execution_tape_multi.csv"
+
+
+def _default_execution_summary_output_path() -> Path:
+    """Create a stable default report path for timestamp-level execution summary."""
+    return Path("reports") / "execution_summary_by_timestamp_multi.csv"
 
 
 def _write_signal_notes(
@@ -980,6 +1008,58 @@ def main() -> None:
         print(f"Saved ticker summary to {ticker_path}.")
         print(f"Saved ticker-strategy summary to {ticker_strategy_path}.")
         print(summary_by_ticker_strategy.to_string(index=False))
+    elif args.execution_tape:
+        # Multi-ticker execution tape path: save all generated child orders and a
+        # timestamp-level activity summary. This still uses independent parent
+        # order generation per ticker; it does not model cross-asset impact.
+        input_csvs = _require_input_csvs(args)
+        tape_backtester = Backtester(
+            tickers=backtester.tickers,
+            period=backtester.period,
+            interval=backtester.interval,
+            max_orders_per_ticker=args.max_orders_per_ticker,
+        )
+
+        if args.start_date or args.start_time:
+            tape_parts = []
+            for input_csv in input_csvs:
+                _, data = _load_processed_csv(
+                    input_csv=input_csv,
+                    start_date=args.start_date,
+                    end_date=args.end_date,
+                    start_time=args.start_time,
+                    end_time=args.end_time,
+                )
+                tape = tape_backtester.execution_tape_for_data(data)
+                tape["source_csv"] = input_csv
+                tape_parts.append(tape)
+            execution_tape = pd.concat(tape_parts, ignore_index=True)
+        else:
+            execution_tape = tape_backtester.execution_tape_for_csvs(input_csvs)
+
+        execution_summary = tape_backtester.summarize_execution_by_timestamp(execution_tape)
+        tape_path = (
+            Path(args.execution_tape_output_csv)
+            if args.execution_tape_output_csv
+            else _default_execution_tape_output_path()
+        )
+        summary_path = (
+            Path(args.execution_summary_output_csv)
+            if args.execution_summary_output_csv
+            else _default_execution_summary_output_path()
+        )
+
+        tape_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        execution_tape.to_csv(tape_path, index=False)
+        execution_summary.to_csv(summary_path, index=False)
+
+        print(f"Generated execution tape for {len(input_csvs):,} input files.")
+        print(f"Child-order rows: {len(execution_tape):,}.")
+        print(f"Timestamp summary rows: {len(execution_summary):,}.")
+        print(f"Saved execution tape to {tape_path}.")
+        print(f"Saved timestamp summary to {summary_path}.")
+        print(execution_summary.head(12).to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -996,6 +1076,7 @@ def main() -> None:
         print("Multi-ticker alignment report is available. Use --alignment-report --input-csvs ...")
         print("Independent multi-ticker backtest is available. Use --backtest-multi --input-csvs ...")
         print("Multi-ticker download is available. Use --download-tickers SPY QQQ ...")
+        print("Multi-ticker execution tape is available. Use --execution-tape --input-csvs ...")
 
 
 if __name__ == "__main__":
