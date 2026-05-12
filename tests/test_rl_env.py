@@ -8,7 +8,9 @@ import math
 import pandas as pd
 
 from src.execution import ParentOrder
+from src.rl_backtester import run_rl_policy_on_data
 from src.rl_env import ACTION_SPACE, ExecutionEnv
+from src.rl_policy import HeuristicExecutionPolicy
 
 
 def sample_market_data() -> pd.DataFrame:
@@ -136,3 +138,25 @@ def test_state_schema_has_no_future_fields() -> None:
     forbidden = {"future_close", "future_volume", "future_return", "next_mid_price"}
 
     assert forbidden.isdisjoint(set(env.state_schema))
+
+
+def test_rl_results_include_main_tca_columns() -> None:
+    results = run_rl_policy_on_data(
+        sample_market_data(),
+        HeuristicExecutionPolicy(),
+        max_orders_per_ticker=1,
+    )
+    required = {
+        "strategy",
+        "implementation_shortfall_bps",
+        "vwap_slippage_bps",
+        "spread_cost_bps",
+        "impact_cost_bps",
+        "adverse_selection_cost_bps",
+        "timing_cost_bps",
+        "opportunity_cost_bps",
+        "fill_rate",
+    }
+
+    assert required.issubset(results.columns)
+    assert set(results["strategy"]) == {"RLAdaptiveEnsemble"}
