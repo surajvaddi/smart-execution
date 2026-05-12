@@ -202,11 +202,12 @@ def average_fill_price(fills: pd.DataFrame) -> float:
     if missing:
         raise ValueError(f"Missing required average fill columns: {missing}")
 
-    filled_quantity = fills["quantity"].sum()
+    executable_fills = fills[fills["quantity"] > 0]
+    filled_quantity = executable_fills["quantity"].sum()
     if filled_quantity <= 0:
         raise ValueError("Cannot compute average fill price with non-positive filled quantity.")
 
-    return float((fills["fill_price"] * fills["quantity"]).sum() / filled_quantity)
+    return float((executable_fills["fill_price"] * executable_fills["quantity"]).sum() / filled_quantity)
 
 
 def arrival_price(order: ParentOrder, market_data: pd.DataFrame) -> float:
@@ -358,14 +359,37 @@ def compute_tca_metrics(order: ParentOrder, fills: pd.DataFrame, market_data: pd
     if missing:
         raise ValueError(f"Missing required TCA metric columns: {missing}")
 
-    avg_fill = average_fill_price(fills)
     arrival_px = arrival_price(order, market_data)
     market_vwap_px = market_vwap(order, market_data)
     strategy = fills["strategy"].iloc[0]
-    timestamps = pd.to_datetime(fills["timestamp"])
-    execution_duration = timestamps.max() - timestamps.min()
+    placement_style = fills["placement_style"].iloc[0] if "placement_style" in fills.columns else None
+    fill_model = fills["fill_model"].iloc[0] if "fill_model" in fills.columns else None
+    filled_fills = fills[fills["quantity"] > 0]
+    filled_quantity = filled_fills["quantity"].sum()
 
-    return {
+    if filled_quantity > 0:
+        avg_fill = average_fill_price(fills)
+        implementation_shortfall = implementation_shortfall_bps(
+            order.side,
+            avg_fill,
+            arrival_px,
+        )
+        vwap_slippage = vwap_slippage_bps(
+            order.side,
+            avg_fill,
+            market_vwap_px,
+        )
+        timestamps = pd.to_datetime(filled_fills["timestamp"])
+        execution_duration = timestamps.max() - timestamps.min()
+    else:
+        # A passive or pegged limit placement can miss every bar. Keep a valid
+        # TCA row so the grid can compare opportunity cost against filled paths.
+        avg_fill = float("nan")
+        implementation_shortfall = float("nan")
+        vwap_slippage = float("nan")
+        execution_duration = pd.Timedelta(0)
+
+    metrics = {
         "ticker": order.ticker,
         "date": order.date,
         "side": order.side,
@@ -374,16 +398,8 @@ def compute_tca_metrics(order: ParentOrder, fills: pd.DataFrame, market_data: pd
         "avg_fill_price": avg_fill,
         "arrival_price": arrival_px,
         "market_vwap": market_vwap_px,
-        "implementation_shortfall_bps": implementation_shortfall_bps(
-            order.side,
-            avg_fill,
-            arrival_px,
-        ),
-        "vwap_slippage_bps": vwap_slippage_bps(
-            order.side,
-            avg_fill,
-            market_vwap_px,
-        ),
+        "implementation_shortfall_bps": implementation_shortfall,
+        "vwap_slippage_bps": vwap_slippage,
         "spread_cost_bps": weighted_cost_bps(fills, "spread_cost", arrival_px),
         "impact_cost_bps": weighted_cost_bps(fills, "impact_cost", arrival_px),
         "timing_cost_bps": timing_cost_bps(order, fills, arrival_px),
@@ -391,3 +407,9 @@ def compute_tca_metrics(order: ParentOrder, fills: pd.DataFrame, market_data: pd
         "fill_rate": fill_rate(order, fills),
         "execution_duration": execution_duration,
     }
+    if placement_style is not None:
+        metrics["placement_style"] = placement_style
+    if fill_model is not None:
+        metrics["fill_model"] = fill_model
+
+    return metrics

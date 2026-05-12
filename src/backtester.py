@@ -9,6 +9,7 @@ import pandas as pd
 
 from src.execution import ParentOrder, generate_parent_orders
 from src.features import add_microstructure_features
+from src.fill_simulator import DEFAULT_FILL_MODEL, PLACEMENT_STYLES, place_and_simulate_fills
 from src.strategies import AdaptiveStrategy, ExecutionStrategy, POVStrategy, TWAPStrategy, VWAPStrategy
 from src.tca import apply_transaction_cost_model, compute_tca_metrics
 
@@ -45,6 +46,8 @@ class Backtester:
     period: str = "60d"
     interval: str = "5m"
     strategies: list[ExecutionStrategy] = field(default_factory=default_strategies)
+    placement_styles: list[str] = field(default_factory=lambda: PLACEMENT_STYLES.copy())
+    fill_model: str = DEFAULT_FILL_MODEL
     max_orders_per_ticker: int | None = 20
 
     def prepare_data_from_csv(self, input_csv: str | Path) -> pd.DataFrame:
@@ -105,6 +108,35 @@ class Backtester:
         enriched_fills = apply_transaction_cost_model(child_orders, data)
         return compute_tca_metrics(order, enriched_fills, data)
 
+    def run_order_strategy_placement(
+        self,
+        order: ParentOrder,
+        strategy: ExecutionStrategy,
+        placement_style: str,
+        data: pd.DataFrame,
+    ) -> tuple[dict, pd.DataFrame]:
+        """Run one parent order through one schedule and one placement style."""
+        child_orders = strategy.generate_child_orders(order, data)
+        simulated_fills = place_and_simulate_fills(
+            child_orders=child_orders,
+            market_data=data,
+            placement_style=placement_style,
+            parent_order=order,
+            fill_model=self.fill_model,
+        )
+        metrics = compute_tca_metrics(order, simulated_fills, data)
+        metrics["parent_order_id"] = order.order_id
+        metrics["placement_style"] = placement_style
+        metrics["fill_model"] = self.fill_model
+
+        simulated_fills["parent_order_id"] = order.order_id
+        simulated_fills["parent_date"] = order.date
+        simulated_fills["parent_quantity"] = order.quantity
+        simulated_fills["parent_start_time"] = order.start_time
+        simulated_fills["parent_end_time"] = order.end_time
+        simulated_fills["participation_cap"] = order.participation_cap
+        return metrics, simulated_fills
+
     def run_single_ticker_csv(self, input_csv: str | Path) -> pd.DataFrame:
         """Run all configured strategies on parent orders from one processed CSV."""
         data = self.prepare_data_from_csv(input_csv)
@@ -143,6 +175,56 @@ class Backtester:
                 results.append(self.run_order_strategy(order, strategy, data))
 
         return pd.DataFrame(results)
+
+    def run_execution_grid_data(self, data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Run every strategy against every placement style for one data set."""
+        if "spread_proxy" not in data.columns:
+            data = add_microstructure_features(data)
+
+        parent_orders = generate_parent_orders(
+            data,
+            max_orders_per_ticker=self.max_orders_per_ticker,
+        )
+        if not parent_orders:
+            raise ValueError("No parent orders generated from input data.")
+
+        result_rows = []
+        fill_parts = []
+        for order in parent_orders:
+            for strategy in self.strategies:
+                for placement_style in self.placement_styles:
+                    metrics, fills = self.run_order_strategy_placement(
+                        order=order,
+                        strategy=strategy,
+                        placement_style=placement_style,
+                        data=data,
+                    )
+                    result_rows.append(metrics)
+                    fill_parts.append(fills)
+
+        return pd.DataFrame(result_rows), pd.concat(fill_parts, ignore_index=True)
+
+    def run_execution_grid_csv(self, input_csv: str | Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Run the execution grid for one processed CSV."""
+        data = self.prepare_data_from_csv(input_csv)
+        results, fills = self.run_execution_grid_data(data)
+        results["source_csv"] = str(input_csv)
+        fills["source_csv"] = str(input_csv)
+        return results, fills
+
+    def run_execution_grid_csvs(self, input_csvs: list[str | Path]) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Run independent execution grids for multiple processed CSVs."""
+        if not input_csvs:
+            raise ValueError("At least one input CSV is required.")
+
+        result_parts = []
+        fill_parts = []
+        for input_csv in input_csvs:
+            results, fills = self.run_execution_grid_csv(input_csv)
+            result_parts.append(results)
+            fill_parts.append(fills)
+
+        return pd.concat(result_parts, ignore_index=True), pd.concat(fill_parts, ignore_index=True)
 
     def execution_tape_for_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Generate long-form child-order tape for one prepared or processed DataFrame."""
@@ -222,6 +304,14 @@ class Backtester:
     def summarize_by_ticker_strategy(self, results: pd.DataFrame) -> pd.DataFrame:
         """Aggregate parent-order TCA result rows by ticker and strategy."""
         return self._summarize_results(results, ["ticker", "strategy"])
+
+    def summarize_by_placement(self, results: pd.DataFrame) -> pd.DataFrame:
+        """Aggregate execution-grid result rows by placement style."""
+        return self._summarize_results(results, ["placement_style"])
+
+    def summarize_by_strategy_placement(self, results: pd.DataFrame) -> pd.DataFrame:
+        """Aggregate execution-grid result rows by strategy and placement style."""
+        return self._summarize_results(results, ["strategy", "placement_style"])
 
     def _summarize_results(self, results: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
         """Aggregate TCA result rows over the requested grouping columns."""

@@ -15,7 +15,9 @@ Yahoo Finance OHLCV data
 -> short-horizon signal research
 -> simulated parent orders
 -> TWAP / VWAP / POV / Adaptive child orders
--> synthetic fills with spread and impact costs
+-> market / limit / pegged placement styles
+-> deterministic synthetic fill simulation
+-> spread, impact, timing, and opportunity costs
 -> parent-order TCA metrics
 -> strategy comparison tables
 ```
@@ -78,6 +80,18 @@ Implemented TCA metrics:
 - fill rate
 - execution duration
 
+Implemented placement and fill simulation:
+
+- market orders
+- marketable limits
+- aggressive limits
+- midpoint limits
+- passive limits
+- primary pegs
+- midpoint pegs
+- adaptive limits
+- deterministic OHLCV touch-based fill simulation
+
 ## Repository Layout
 
 ```text
@@ -85,6 +99,8 @@ Implemented TCA metrics:
 ├── main.py
 ├── requirements.txt
 ├── CODEX_LOG.md
+├── docs/
+│   └── limit_order_fill_simulator_plan.md
 ├── data/
 │   ├── raw/
 │   └── processed/
@@ -96,6 +112,7 @@ Implemented TCA metrics:
     ├── signals.py
     ├── execution.py
     ├── strategies.py
+    ├── fill_simulator.py
     ├── tca.py
     ├── backtester.py
     └── plots.py
@@ -320,6 +337,58 @@ POV
 Adaptive
 ```
 
+### Run The Execution Placement Grid
+
+```bash
+python3 main.py \
+  --execution-grid-sample \
+  --input-csv data/processed/SPY_5d_5m.csv \
+  --max-orders-per-ticker 1
+```
+
+Outputs:
+
+```text
+reports/execution_grid_fills.csv
+reports/execution_grid_results.csv
+reports/execution_grid_summary_by_strategy.csv
+reports/execution_grid_summary_by_placement.csv
+reports/execution_grid_summary_by_strategy_placement.csv
+```
+
+The execution grid compares:
+
+```text
+TWAP / VWAP / POV / Adaptive
+```
+
+against:
+
+```text
+market
+marketable_limit
+aggressive_limit
+midpoint_limit
+passive_limit
+primary_peg
+midpoint_peg
+adaptive_limit
+```
+
+You can narrow the placement set:
+
+```bash
+python3 main.py \
+  --execution-grid-sample \
+  --input-csv data/processed/SPY_5d_5m.csv \
+  --placement-styles market passive_limit midpoint_limit adaptive_limit
+```
+
+The grid keeps schedule logic separate from placement logic. TWAP, VWAP, POV,
+and Adaptive decide the child-order rate. Placement styles decide whether that
+child order is submitted as marketable, passive, midpoint, pegged, or adaptive
+limit liquidity.
+
 ### Narrow The Date Or Time Range
 
 Most commands that read `--input-csv` also accept optional inclusive filters:
@@ -423,6 +492,18 @@ total_notional
 
 This helps identify when execution is concentrated across multiple assets. It still does not model cross-asset market impact or portfolio risk.
 
+Run the execution placement grid independently across multiple ticker CSVs:
+
+```bash
+python3 main.py \
+  --execution-grid-multi \
+  --input-csvs data/processed/SPY_5d_5m.csv data/processed/QQQ_5d_5m.csv \
+  --max-orders-per-ticker 1
+```
+
+This writes the same execution-grid reports as the single-CSV command, with
+`source_csv` included in the detailed result and fill rows.
+
 ## Reading The Outputs
 
 Best starting points:
@@ -433,6 +514,7 @@ reports/signal_notes_SPY_5d_5m.md
 reports/strategy_schedule_comparison_SPY_5d_5m.csv
 reports/tca_fills_SPY_5d_5m.csv
 reports/backtest_summary_SPY_5d_5m.csv
+reports/execution_grid_summary_by_strategy_placement.csv
 ```
 
 `CODEX_LOG.md` is a development log that explains what was added phase by phase.
@@ -482,6 +564,15 @@ reports/backtest_summary_SPY_5d_5m.csv
 - implements TWAP, VWAP, POV, and Adaptive schedules
 - enforces participation caps
 
+### Fill Simulator
+
+`src/fill_simulator.py`
+
+- converts child-order intent into market, limit, pegged, or adaptive placements
+- uses synthetic bid/ask prices from the TCA layer
+- simulates full, partial, and missed fills using OHLCV touch rules
+- preserves submitted quantity separately from filled quantity
+
 ### TCA
 
 `src/tca.py`
@@ -490,6 +581,7 @@ reports/backtest_summary_SPY_5d_5m.csv
 - estimates temporary and permanent impact
 - computes fill prices
 - computes parent-order TCA metrics
+- supports partial and zero-fill rows from the fill simulator
 
 ### Backtester
 
@@ -499,12 +591,14 @@ reports/backtest_summary_SPY_5d_5m.csv
 - prepares local processed data
 - runs order-strategy simulations
 - saves detailed results and strategy summaries
+- runs execution grids across strategies and placement styles
 
 ## Current Limitations
 
 - Uses OHLCV bars, not full order book data.
 - Synthetic bid/ask prices are deterministic and proxy-based.
 - Impact parameters are not calibrated to real market impact data.
+- Fill simulation is deterministic and bar-based, not a queue-position model.
 - Current CLI sample backtest runs a limited local SPY sample by default.
 - Plotting functions and final report generation are not yet implemented.
 - No interactive frontend exists yet.
@@ -525,6 +619,7 @@ Useful future extensions:
 - multi-ticker batch backtests
 - configurable impact parameters
 - noisy spread robustness experiments
+- stochastic queue and fill-probability models
 - adaptive strategy ablations
 - high-volatility and low-liquidity regime analysis
 - Streamlit dashboard for strategy comparison

@@ -15,6 +15,7 @@ import pandas as pd
 from src.backtester import Backtester
 from src.data_loader import load_and_save_intraday_data
 from src.features import add_microstructure_features, estimate_volume_curve
+from src.fill_simulator import DEFAULT_FILL_MODEL, PLACEMENT_STYLES
 from src.execution import generate_parent_orders, parent_orders_to_frame, parse_time
 from src.signals import (
     DEFAULT_HORIZONS,
@@ -118,6 +119,29 @@ def parse_args() -> argparse.Namespace:
         help="Create a multi-ticker child-order execution tape and timestamp summary.",
     )
     parser.add_argument(
+        "--execution-grid-sample",
+        action="store_true",
+        help="Run one processed CSV through every strategy and placement style.",
+    )
+    parser.add_argument(
+        "--execution-grid-multi",
+        action="store_true",
+        help="Run independent execution grids for multiple processed CSVs.",
+    )
+    parser.add_argument(
+        "--placement-styles",
+        nargs="+",
+        choices=PLACEMENT_STYLES,
+        default=None,
+        help="Placement styles to include in execution-grid commands.",
+    )
+    parser.add_argument(
+        "--fill-model",
+        choices=[DEFAULT_FILL_MODEL],
+        default=DEFAULT_FILL_MODEL,
+        help="Fill model to use in execution-grid commands.",
+    )
+    parser.add_argument(
         "--orders-output-csv",
         default=None,
         help="Optional CSV path for --orders-sample parent orders.",
@@ -203,6 +227,31 @@ def parse_args() -> argparse.Namespace:
         help="Optional CSV path for --execution-tape timestamp summary.",
     )
     parser.add_argument(
+        "--execution-grid-fills-output-csv",
+        default=None,
+        help="Optional CSV path for execution-grid simulated fills.",
+    )
+    parser.add_argument(
+        "--execution-grid-results-output-csv",
+        default=None,
+        help="Optional CSV path for execution-grid TCA results.",
+    )
+    parser.add_argument(
+        "--execution-grid-summary-strategy-output-csv",
+        default=None,
+        help="Optional CSV path for execution-grid strategy summary.",
+    )
+    parser.add_argument(
+        "--execution-grid-summary-placement-output-csv",
+        default=None,
+        help="Optional CSV path for execution-grid placement summary.",
+    )
+    parser.add_argument(
+        "--execution-grid-summary-strategy-placement-output-csv",
+        default=None,
+        help="Optional CSV path for execution-grid strategy-placement summary.",
+    )
+    parser.add_argument(
         "--input-csv",
         default="data/processed/SPY_5d_5m.csv",
         help="Processed CSV to use with --feature-sample.",
@@ -270,10 +319,15 @@ def _validate_filter_args(parser: argparse.ArgumentParser, args: argparse.Namesp
         parser.error("--start-date and --end-date must be provided together.")
     if bool(args.start_time) != bool(args.end_time):
         parser.error("--start-time and --end-time must be provided together.")
-    if (args.alignment_report or args.backtest_multi or args.execution_tape) and not args.input_csvs:
+    if (
+        args.alignment_report
+        or args.backtest_multi
+        or args.execution_tape
+        or args.execution_grid_multi
+    ) and not args.input_csvs:
         parser.error(
             "--input-csvs is required for --alignment-report, --backtest-multi, "
-            "and --execution-tape."
+            "--execution-tape, and --execution-grid-multi."
         )
 
 
@@ -462,6 +516,31 @@ def _default_execution_summary_output_path() -> Path:
     return Path("reports") / "execution_summary_by_timestamp_multi.csv"
 
 
+def _default_execution_grid_fills_output_path() -> Path:
+    """Create a stable default report path for execution-grid simulated fills."""
+    return Path("reports") / "execution_grid_fills.csv"
+
+
+def _default_execution_grid_results_output_path() -> Path:
+    """Create a stable default report path for execution-grid TCA results."""
+    return Path("reports") / "execution_grid_results.csv"
+
+
+def _default_execution_grid_summary_strategy_output_path() -> Path:
+    """Create a stable default report path for execution-grid strategy summary."""
+    return Path("reports") / "execution_grid_summary_by_strategy.csv"
+
+
+def _default_execution_grid_summary_placement_output_path() -> Path:
+    """Create a stable default report path for execution-grid placement summary."""
+    return Path("reports") / "execution_grid_summary_by_placement.csv"
+
+
+def _default_execution_grid_summary_strategy_placement_output_path() -> Path:
+    """Create a stable default report path for execution-grid strategy-placement summary."""
+    return Path("reports") / "execution_grid_summary_by_strategy_placement.csv"
+
+
 def _write_signal_notes(
     output_path: Path,
     input_path: Path,
@@ -551,6 +630,63 @@ def _strategy_schedule_summary(
         "max_child_quantity": child_orders["quantity"].max(),
         "max_participation": participation.max(),
     }
+
+
+def _save_execution_grid_outputs(
+    args: argparse.Namespace,
+    grid_backtester: Backtester,
+    results: pd.DataFrame,
+    fills: pd.DataFrame,
+) -> tuple[Path, Path, Path, Path, Path, pd.DataFrame]:
+    """Save execution-grid fills, detailed TCA rows, and aggregate summaries."""
+    summary_by_strategy = grid_backtester.summarize_by_strategy(results)
+    summary_by_placement = grid_backtester.summarize_by_placement(results)
+    summary_by_strategy_placement = grid_backtester.summarize_by_strategy_placement(results)
+
+    fills_path = (
+        Path(args.execution_grid_fills_output_csv)
+        if args.execution_grid_fills_output_csv
+        else _default_execution_grid_fills_output_path()
+    )
+    results_path = (
+        Path(args.execution_grid_results_output_csv)
+        if args.execution_grid_results_output_csv
+        else _default_execution_grid_results_output_path()
+    )
+    strategy_path = (
+        Path(args.execution_grid_summary_strategy_output_csv)
+        if args.execution_grid_summary_strategy_output_csv
+        else _default_execution_grid_summary_strategy_output_path()
+    )
+    placement_path = (
+        Path(args.execution_grid_summary_placement_output_csv)
+        if args.execution_grid_summary_placement_output_csv
+        else _default_execution_grid_summary_placement_output_path()
+    )
+    strategy_placement_path = (
+        Path(args.execution_grid_summary_strategy_placement_output_csv)
+        if args.execution_grid_summary_strategy_placement_output_csv
+        else _default_execution_grid_summary_strategy_placement_output_path()
+    )
+
+    for output_path, frame in [
+        (fills_path, fills),
+        (results_path, results),
+        (strategy_path, summary_by_strategy),
+        (placement_path, summary_by_placement),
+        (strategy_placement_path, summary_by_strategy_placement),
+    ]:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_csv(output_path, index=False)
+
+    return (
+        fills_path,
+        results_path,
+        strategy_path,
+        placement_path,
+        strategy_placement_path,
+        summary_by_strategy_placement,
+    )
 
 
 def main() -> None:
@@ -1060,6 +1196,91 @@ def main() -> None:
         print(f"Saved execution tape to {tape_path}.")
         print(f"Saved timestamp summary to {summary_path}.")
         print(execution_summary.head(12).to_string(index=False))
+    elif args.execution_grid_sample:
+        # Placement-grid path: compare the existing schedule algorithms against
+        # market, limit, pegged, and adaptive placement behavior.
+        input_path, data = _load_processed_csv_from_args(args)
+        grid_backtester = Backtester(
+            tickers=backtester.tickers,
+            period=backtester.period,
+            interval=backtester.interval,
+            placement_styles=args.placement_styles or PLACEMENT_STYLES.copy(),
+            fill_model=args.fill_model,
+            max_orders_per_ticker=args.max_orders_per_ticker,
+        )
+        results, fills = grid_backtester.run_execution_grid_data(data)
+        (
+            fills_path,
+            results_path,
+            strategy_path,
+            placement_path,
+            strategy_placement_path,
+            summary_by_strategy_placement,
+        ) = _save_execution_grid_outputs(args, grid_backtester, results, fills)
+
+        print(f"Ran execution grid from {input_path}.")
+        print(f"Placement styles: {', '.join(grid_backtester.placement_styles)}")
+        print(f"Detailed result rows: {len(results):,}.")
+        print(f"Simulated fill rows: {len(fills):,}.")
+        print(f"Saved simulated fills to {fills_path}.")
+        print(f"Saved detailed results to {results_path}.")
+        print(f"Saved strategy summary to {strategy_path}.")
+        print(f"Saved placement summary to {placement_path}.")
+        print(f"Saved strategy-placement summary to {strategy_placement_path}.")
+        print(summary_by_strategy_placement.to_string(index=False))
+    elif args.execution_grid_multi:
+        # Multi-ticker execution grid. Each ticker is still simulated
+        # independently, then results are combined for cross-ticker comparison.
+        input_csvs = _require_input_csvs(args)
+        grid_backtester = Backtester(
+            tickers=backtester.tickers,
+            period=backtester.period,
+            interval=backtester.interval,
+            placement_styles=args.placement_styles or PLACEMENT_STYLES.copy(),
+            fill_model=args.fill_model,
+            max_orders_per_ticker=args.max_orders_per_ticker,
+        )
+
+        if args.start_date or args.start_time:
+            result_parts = []
+            fill_parts = []
+            for input_csv in input_csvs:
+                _, data = _load_processed_csv(
+                    input_csv=input_csv,
+                    start_date=args.start_date,
+                    end_date=args.end_date,
+                    start_time=args.start_time,
+                    end_time=args.end_time,
+                )
+                results, fills = grid_backtester.run_execution_grid_data(data)
+                results["source_csv"] = input_csv
+                fills["source_csv"] = input_csv
+                result_parts.append(results)
+                fill_parts.append(fills)
+            grid_results = pd.concat(result_parts, ignore_index=True)
+            grid_fills = pd.concat(fill_parts, ignore_index=True)
+        else:
+            grid_results, grid_fills = grid_backtester.run_execution_grid_csvs(input_csvs)
+
+        (
+            fills_path,
+            results_path,
+            strategy_path,
+            placement_path,
+            strategy_placement_path,
+            summary_by_strategy_placement,
+        ) = _save_execution_grid_outputs(args, grid_backtester, grid_results, grid_fills)
+
+        print(f"Ran independent execution grids for {len(input_csvs):,} input files.")
+        print(f"Placement styles: {', '.join(grid_backtester.placement_styles)}")
+        print(f"Detailed result rows: {len(grid_results):,}.")
+        print(f"Simulated fill rows: {len(grid_fills):,}.")
+        print(f"Saved simulated fills to {fills_path}.")
+        print(f"Saved detailed results to {results_path}.")
+        print(f"Saved strategy summary to {strategy_path}.")
+        print(f"Saved placement summary to {placement_path}.")
+        print(f"Saved strategy-placement summary to {strategy_placement_path}.")
+        print(summary_by_strategy_placement.to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -1077,6 +1298,7 @@ def main() -> None:
         print("Independent multi-ticker backtest is available. Use --backtest-multi --input-csvs ...")
         print("Multi-ticker download is available. Use --download-tickers SPY QQQ ...")
         print("Multi-ticker execution tape is available. Use --execution-tape --input-csvs ...")
+        print("Execution-grid simulation is available. Use --execution-grid-sample.")
 
 
 if __name__ == "__main__":

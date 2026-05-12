@@ -182,3 +182,26 @@ Comments:
 - Added execution tape generation for multiple CSVs, saving all child orders with parent-order metadata and notional.
 - Added timestamp-level execution summary grouped by timestamp and strategy, including active tickers, child-order count, total quantity, and total notional.
 - Added `main.py --execution-tape --input-csvs ...` to write `reports/execution_tape_multi.csv` and `reports/execution_summary_by_timestamp_multi.csv`.
+
+### Limit Placement Grid and Fill Simulator
+
+- Added `docs/limit_order_fill_simulator_plan.md` to capture the placement-grid and fill-simulation design.
+- Added `src/fill_simulator.py` for separating child-order scheduling from order placement and fill simulation.
+- Implemented placement styles for market, marketable limit, aggressive limit, midpoint limit, passive limit, primary peg, midpoint peg, and adaptive limit orders.
+- Implemented a deterministic `volume_capped_touch` fill model using OHLCV high/low touches, synthetic bid/ask prices, and participation-based fill capacity.
+- Preserved submitted quantity separately from filled quantity so passive misses and partial fills can be analyzed.
+- Updated TCA metrics so partial-fill and zero-fill paths produce valid result rows with opportunity cost instead of failing.
+- Added execution-grid orchestration in the backtester across strategy schedules and placement styles.
+- Added CLI support for:
+  - `--execution-grid-sample`
+  - `--execution-grid-multi`
+  - `--placement-styles`
+  - `--fill-model`
+- Added execution-grid report outputs for simulated fills, detailed TCA rows, strategy summary, placement summary, and strategy-placement summary.
+- Updated the README with the new fill-simulator architecture, commands, outputs, and current limitations.
+
+Comments:
+
+- Schedule algorithms still answer when and how much to trade; placement styles now answer where the child order is posted.
+- The first fill simulator is intentionally deterministic because the project still uses OHLCV data rather than real order book depth or queue position.
+- `market` placement remains the backwards-compatible path, while passive and pegged styles can now miss or partially fill and create opportunity cost.
