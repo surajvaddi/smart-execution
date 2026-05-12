@@ -6,6 +6,9 @@ each child order is placed and whether that placed order fills in the OHLCV bar.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+import random
+
 import pandas as pd
 
 from src.execution import ParentOrder
@@ -31,7 +34,42 @@ PLACEMENT_STYLES = [
 
 DEFAULT_FILL_MODEL = "volume_capped_touch"
 QUEUE_WEIGHTED_FILL_MODEL = "queue_weighted_touch"
-VALID_FILL_MODELS = {DEFAULT_FILL_MODEL, QUEUE_WEIGHTED_FILL_MODEL}
+STOCHASTIC_QUEUE_FILL_MODEL = "stochastic_queue_touch"
+VALID_FILL_MODELS = {
+    DEFAULT_FILL_MODEL,
+    QUEUE_WEIGHTED_FILL_MODEL,
+    STOCHASTIC_QUEUE_FILL_MODEL,
+}
+DEFAULT_RANDOM_SEED = 42
+
+
+@dataclass(frozen=True)
+class FillModelConfig:
+    """Configurable assumptions for deterministic and stochastic fill models."""
+
+    capacity_multipliers: dict[str, float] = field(
+        default_factory=lambda: {
+            "aggressive_limit": 1.00,
+            "midpoint_limit": 0.50,
+            "midpoint_peg": 0.50,
+            "passive_limit": 0.25,
+            "primary_peg": 0.25,
+        }
+    )
+    queue_priorities: dict[str, float] = field(
+        default_factory=lambda: {
+            "aggressive_limit": 0.85,
+            "midpoint_limit": 0.55,
+            "midpoint_peg": 0.55,
+            "passive_limit": 0.30,
+            "primary_peg": 0.30,
+        }
+    )
+    default_capacity_multiplier: float = 0.25
+    default_queue_priority: float = 0.30
+
+
+DEFAULT_FILL_CONFIG = FillModelConfig()
 
 
 def add_order_placement(
@@ -98,6 +136,8 @@ def simulate_fills(
     placed_orders: pd.DataFrame,
     market_data: pd.DataFrame | None = None,
     fill_model: str = DEFAULT_FILL_MODEL,
+    fill_config: FillModelConfig = DEFAULT_FILL_CONFIG,
+    random_seed: int | None = DEFAULT_RANDOM_SEED,
 ) -> pd.DataFrame:
     """Simulate child-order fills from placed orders and OHLCV touch rules."""
     if fill_model not in VALID_FILL_MODELS:
@@ -136,11 +176,13 @@ def simulate_fills(
     touch_depths = []
     queue_priorities = []
     fill_probabilities = []
+    random_draws = []
+    rng = random.Random(random_seed)
 
     for _, row in fills.iterrows():
         submitted_quantity = float(row["quantity"])
-        fill_context = _fill_context(row, fill_model)
-        filled_quantity = _filled_quantity(row, submitted_quantity, fill_context)
+        fill_context = _fill_context(row, fill_model, fill_config, rng)
+        filled_quantity = _filled_quantity(row, submitted_quantity, fill_context, fill_config)
         unfilled_quantity = max(submitted_quantity - filled_quantity, 0.0)
 
         if filled_quantity <= 0:
@@ -175,12 +217,14 @@ def simulate_fills(
         touch_depths.append(fill_context["touch_depth"])
         queue_priorities.append(fill_context["queue_priority"])
         fill_probabilities.append(fill_context["fill_probability"])
+        random_draws.append(fill_context["random_draw"])
 
     fills["submitted_quantity"] = submitted_quantities
     fills["filled_quantity"] = filled_quantities
     fills["unfilled_quantity"] = unfilled_quantities
     fills["fill_status"] = fill_statuses
     fills["fill_model"] = fill_model
+    fills["random_seed"] = random_seed
     fills["fill_price"] = fill_prices
     fills["spread_cost"] = spread_costs
     fills["temporary_impact"] = temporary_impacts
@@ -189,6 +233,7 @@ def simulate_fills(
     fills["touch_depth"] = touch_depths
     fills["queue_priority"] = queue_priorities
     fills["fill_probability"] = fill_probabilities
+    fills["random_draw"] = random_draws
 
     # TCA functions use `quantity` as executed quantity. Preserve the submitted
     # amount separately so reports can show what was missed.
@@ -202,10 +247,18 @@ def place_and_simulate_fills(
     placement_style: str,
     parent_order: ParentOrder | None = None,
     fill_model: str = DEFAULT_FILL_MODEL,
+    fill_config: FillModelConfig = DEFAULT_FILL_CONFIG,
+    random_seed: int | None = DEFAULT_RANDOM_SEED,
 ) -> pd.DataFrame:
     """Apply placement and fill simulation to child-order intent."""
     placed = add_order_placement(child_orders, market_data, placement_style, parent_order)
-    return simulate_fills(placed, market_data=market_data, fill_model=fill_model)
+    return simulate_fills(
+        placed,
+        market_data=market_data,
+        fill_model=fill_model,
+        fill_config=fill_config,
+        random_seed=random_seed,
+    )
 
 
 def _market_lookup(market_data: pd.DataFrame) -> pd.DataFrame:
@@ -285,7 +338,12 @@ def _placement_price(row: pd.Series, resolved_style: str) -> tuple[str, float]:
     raise ValueError(f"Unsupported resolved placement style: {resolved_style!r}.")
 
 
-def _fill_context(row: pd.Series, fill_model: str) -> dict[str, float]:
+def _fill_context(
+    row: pd.Series,
+    fill_model: str,
+    fill_config: FillModelConfig,
+    rng: random.Random,
+) -> dict[str, float]:
     """Return touch and queue inputs used by the selected fill model."""
     resolved_style = str(row["resolved_placement_style"])
     if resolved_style in {"market", "marketable_limit"}:
@@ -294,6 +352,8 @@ def _fill_context(row: pd.Series, fill_model: str) -> dict[str, float]:
             "touch_depth": 1.0,
             "queue_priority": 1.0,
             "fill_probability": 1.0,
+            "random_draw": float("nan"),
+            "scale_capacity_by_probability": 0.0,
         }
 
     if not _bar_touches_limit(row):
@@ -302,6 +362,8 @@ def _fill_context(row: pd.Series, fill_model: str) -> dict[str, float]:
             "touch_depth": 0.0,
             "queue_priority": 0.0,
             "fill_probability": 0.0,
+            "random_draw": float("nan"),
+            "scale_capacity_by_probability": 0.0,
         }
 
     if fill_model == DEFAULT_FILL_MODEL:
@@ -310,16 +372,25 @@ def _fill_context(row: pd.Series, fill_model: str) -> dict[str, float]:
             "touch_depth": 1.0,
             "queue_priority": 1.0,
             "fill_probability": 1.0,
+            "random_draw": float("nan"),
+            "scale_capacity_by_probability": 0.0,
         }
 
     touch_depth = _touch_depth(row)
-    queue_priority = _queue_priority(resolved_style)
+    queue_priority = _queue_priority(resolved_style, fill_config)
     fill_probability = max(0.0, min(1.0, touch_depth * queue_priority))
+    random_draw = rng.random() if fill_model == STOCHASTIC_QUEUE_FILL_MODEL else float("nan")
+    is_fill_eligible = 1.0
+    if fill_model == STOCHASTIC_QUEUE_FILL_MODEL and random_draw > fill_probability:
+        is_fill_eligible = 0.0
+
     return {
-        "is_fill_eligible": 1.0,
+        "is_fill_eligible": is_fill_eligible,
         "touch_depth": touch_depth,
         "queue_priority": queue_priority,
         "fill_probability": fill_probability,
+        "random_draw": random_draw,
+        "scale_capacity_by_probability": 1.0 if fill_model == QUEUE_WEIGHTED_FILL_MODEL else 0.0,
     }
 
 
@@ -327,6 +398,7 @@ def _filled_quantity(
     row: pd.Series,
     submitted_quantity: float,
     fill_context: dict[str, float],
+    fill_config: FillModelConfig,
 ) -> float:
     """Return simulated filled quantity for one placed child order."""
     if submitted_quantity <= 0:
@@ -344,15 +416,13 @@ def _filled_quantity(
     if volume <= 0:
         return 0.0
 
-    capacity_multiplier = {
-        "aggressive_limit": 1.00,
-        "midpoint_limit": 0.50,
-        "midpoint_peg": 0.50,
-        "passive_limit": 0.25,
-        "primary_peg": 0.25,
-    }.get(resolved_style, 0.25)
+    capacity_multiplier = fill_config.capacity_multipliers.get(
+        resolved_style,
+        fill_config.default_capacity_multiplier,
+    )
     fill_capacity = participation_cap * volume * capacity_multiplier
-    fill_capacity *= fill_context["fill_probability"]
+    if fill_context["scale_capacity_by_probability"] > 0:
+        fill_capacity *= fill_context["fill_probability"]
     return float(min(submitted_quantity, fill_capacity))
 
 
@@ -386,15 +456,12 @@ def _touch_depth(row: pd.Series) -> float:
     return float(max(0.0, min(1.0, raw_depth)))
 
 
-def _queue_priority(resolved_style: str) -> float:
+def _queue_priority(resolved_style: str, fill_config: FillModelConfig) -> float:
     """Return a deterministic queue priority proxy for one placement style."""
-    return {
-        "aggressive_limit": 0.85,
-        "midpoint_limit": 0.55,
-        "midpoint_peg": 0.55,
-        "passive_limit": 0.30,
-        "primary_peg": 0.30,
-    }.get(resolved_style, 0.30)
+    return fill_config.queue_priorities.get(
+        resolved_style,
+        fill_config.default_queue_priority,
+    )
 
 
 def _simulated_fill_price(row: pd.Series, temporary_impact: float) -> float:

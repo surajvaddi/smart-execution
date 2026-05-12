@@ -229,3 +229,12 @@ Comments:
 - Scaled touched limit-order capacity by bar depth and placement queue priority under the queue-weighted model.
 - Updated the CLI `--fill-model` choices to support both fill models.
 - Added tests proving queue-weighted passive fills are more conservative while market fills remain full-size.
+
+### Fill Config and Stochastic Fills
+
+- Added `FillModelConfig` so placement capacity multipliers and queue priorities are explicit configurable assumptions instead of hidden literals.
+- Added `stochastic_queue_touch` as a seeded probabilistic fill model for touched limit orders.
+- Added `random_seed` and `random_draw` outputs to stochastic fill reports so runs can be reproduced and audited.
+- Added `--random-seed` to execution-grid CLI commands.
+- Updated the backtester to pass the configured random seed into fill simulation.
+- Added tests for configurable deterministic capacity, reproducible stochastic fills, and stochastic misses on touched limits.

@@ -9,7 +9,7 @@ from datetime import time
 import pandas as pd
 
 from src.execution import ParentOrder
-from src.fill_simulator import add_order_placement, place_and_simulate_fills
+from src.fill_simulator import FillModelConfig, add_order_placement, place_and_simulate_fills
 from src.tca import apply_transaction_cost_model, compute_tca_metrics
 
 
@@ -191,6 +191,66 @@ class FillSimulatorTest(unittest.TestCase):
         self.assertEqual(fills.loc[0, "fill_status"], "filled")
         self.assertAlmostEqual(fills.loc[0, "filled_quantity"], 1_000.0)
         self.assertAlmostEqual(fills.loc[0, "fill_probability"], 1.0)
+
+    def test_fill_model_config_controls_deterministic_capacity(self) -> None:
+        """Capacity multipliers should be explicit configurable assumptions."""
+        config = FillModelConfig(
+            capacity_multipliers={"passive_limit": 0.10},
+            queue_priorities={"passive_limit": 0.30},
+            default_capacity_multiplier=0.25,
+            default_queue_priority=0.30,
+        )
+
+        fills = place_and_simulate_fills(
+            child_orders=self.child_orders("buy"),
+            market_data=self.market_data,
+            placement_style="passive_limit",
+            parent_order=self.parent_order,
+            fill_config=config,
+        )
+
+        self.assertAlmostEqual(fills.loc[0, "filled_quantity"], 100.0)
+
+    def test_stochastic_queue_touch_is_seed_reproducible(self) -> None:
+        """Stochastic fills should be reproducible with a fixed seed."""
+        first = place_and_simulate_fills(
+            child_orders=self.child_orders("buy"),
+            market_data=self.market_data,
+            placement_style="passive_limit",
+            parent_order=self.parent_order,
+            fill_model="stochastic_queue_touch",
+            random_seed=31,
+        )
+        second = place_and_simulate_fills(
+            child_orders=self.child_orders("buy"),
+            market_data=self.market_data,
+            placement_style="passive_limit",
+            parent_order=self.parent_order,
+            fill_model="stochastic_queue_touch",
+            random_seed=31,
+        )
+
+        self.assertAlmostEqual(first.loc[0, "random_draw"], second.loc[0, "random_draw"])
+        self.assertAlmostEqual(first.loc[0, "filled_quantity"], second.loc[0, "filled_quantity"])
+        self.assertAlmostEqual(first.loc[0, "random_draw"], 0.01227824739797545)
+        self.assertAlmostEqual(first.loc[0, "fill_probability"], 0.05)
+        self.assertAlmostEqual(first.loc[0, "filled_quantity"], 250.0)
+
+    def test_stochastic_queue_touch_can_miss_touched_limits(self) -> None:
+        """A touched limit can still miss when the random draw exceeds probability."""
+        fills = place_and_simulate_fills(
+            child_orders=self.child_orders("buy"),
+            market_data=self.market_data,
+            placement_style="passive_limit",
+            parent_order=self.parent_order,
+            fill_model="stochastic_queue_touch",
+            random_seed=1,
+        )
+
+        self.assertAlmostEqual(fills.loc[0, "random_draw"], 0.13436424411240122)
+        self.assertAlmostEqual(fills.loc[0, "fill_probability"], 0.05)
+        self.assertEqual(fills.loc[0, "fill_status"], "unfilled")
+        self.assertAlmostEqual(fills.loc[0, "filled_quantity"], 0.0)
 
     def test_tca_metrics_support_zero_fills(self) -> None:
         """A fully missed limit placement should still produce a TCA result row."""

@@ -15,7 +15,7 @@ import pandas as pd
 from src.backtester import Backtester
 from src.data_loader import load_and_save_intraday_data
 from src.features import add_microstructure_features, estimate_volume_curve
-from src.fill_simulator import DEFAULT_FILL_MODEL, PLACEMENT_STYLES, VALID_FILL_MODELS
+from src.fill_simulator import DEFAULT_FILL_MODEL, DEFAULT_RANDOM_SEED, PLACEMENT_STYLES, VALID_FILL_MODELS
 from src.execution import generate_parent_orders, parent_orders_to_frame, parse_time
 from src.signals import (
     DEFAULT_HORIZONS,
@@ -140,6 +140,12 @@ def parse_args() -> argparse.Namespace:
         choices=sorted(VALID_FILL_MODELS),
         default=DEFAULT_FILL_MODEL,
         help="Fill model to use in execution-grid commands.",
+    )
+    parser.add_argument(
+        "--random-seed",
+        type=int,
+        default=DEFAULT_RANDOM_SEED,
+        help="Random seed for stochastic execution-grid fill models.",
     )
     parser.add_argument(
         "--orders-output-csv",
@@ -1206,6 +1212,7 @@ def main() -> None:
             interval=backtester.interval,
             placement_styles=args.placement_styles or PLACEMENT_STYLES.copy(),
             fill_model=args.fill_model,
+            random_seed=args.random_seed,
             max_orders_per_ticker=args.max_orders_per_ticker,
         )
         results, fills = grid_backtester.run_execution_grid_data(data)
@@ -1238,6 +1245,7 @@ def main() -> None:
             interval=backtester.interval,
             placement_styles=args.placement_styles or PLACEMENT_STYLES.copy(),
             fill_model=args.fill_model,
+            random_seed=args.random_seed,
             max_orders_per_ticker=args.max_orders_per_ticker,
         )
 

@@ -76,6 +76,19 @@ A second model, `queue_weighted_touch`, adds a conservative queue proxy:
 - Passive and primary-peg orders receive lower priority than midpoint or aggressive limits.
 - The output includes `touch_depth`, `queue_priority`, and `fill_probability` proxy columns.
 
+The deterministic assumptions are now explicit in `FillModelConfig`:
+
+- placement capacity multipliers
+- placement queue priorities
+- default fallback capacity and priority values
+
+A third model, `stochastic_queue_touch`, adds seeded random outcomes:
+
+- Market and marketable limits still fill immediately.
+- Touched limits estimate fill probability from touch depth and queue priority.
+- A seeded random draw decides whether each touched limit receives capacity or misses.
+- Output includes `random_seed` and `random_draw` so runs are reproducible and auditable.
+
 ## Refactoring
 
 TCA currently assumes every child order fully fills. The refactor is:

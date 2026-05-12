@@ -92,6 +92,7 @@ Implemented placement and fill simulation:
 - adaptive limits
 - deterministic OHLCV touch-based fill simulation
 - queue-weighted touch simulation for more conservative limit fills
+- seeded stochastic queue-touch simulation for probabilistic limit fills
 
 ## Repository Layout
 
@@ -411,6 +412,22 @@ by how deeply the bar traded through the limit and a queue-priority proxy. It is
 not a real order-book queue model, but it is more conservative than treating
 every touch as equally fillable.
 
+A stochastic model is available for seeded random fill/no-fill outcomes:
+
+```bash
+python3 main.py \
+  --execution-grid-sample \
+  --input-csv data/processed/SPY_5d_5m.csv \
+  --fill-model stochastic_queue_touch \
+  --random-seed 42
+```
+
+`stochastic_queue_touch` uses the same touch-depth and queue-priority proxy to
+estimate fill probability, then draws a seeded random number for each touched
+limit order. If the draw is above the modeled probability, the order misses even
+though the bar touched the limit. Market and marketable-limit placements still
+fill immediately.
+
 ### Narrow The Date Or Time Range
 
 Most commands that read `--input-csv` also accept optional inclusive filters:
@@ -594,6 +611,7 @@ reports/execution_grid_summary_by_strategy_placement.csv
 - uses synthetic bid/ask prices from the TCA layer
 - simulates full, partial, and missed fills using OHLCV touch rules
 - optionally applies queue-weighted touch depth for more conservative fills
+- optionally applies seeded stochastic fill/no-fill draws for touched limits
 - preserves submitted quantity separately from filled quantity
 
 ### TCA
@@ -621,7 +639,7 @@ reports/execution_grid_summary_by_strategy_placement.csv
 - Uses OHLCV bars, not full order book data.
 - Synthetic bid/ask prices are deterministic and proxy-based.
 - Impact parameters are not calibrated to real market impact data.
-- Fill simulation is deterministic and bar-based; `queue_weighted_touch` is a queue proxy, not true order-book queue position.
+- Fill simulation is bar-based; queue and stochastic models are proxies, not true order-book queue position.
 - Current CLI sample backtest runs a limited local SPY sample by default.
 - Plotting functions and final report generation are not yet implemented.
 - No interactive frontend exists yet.
@@ -642,7 +660,7 @@ Useful future extensions:
 - multi-ticker batch backtests
 - configurable impact parameters
 - noisy spread robustness experiments
-- stochastic queue and fill-probability models
+- multi-path Monte Carlo summaries for stochastic fills
 - adaptive strategy ablations
 - high-volatility and low-liquidity regime analysis
 - Streamlit dashboard for strategy comparison
