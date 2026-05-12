@@ -214,3 +214,9 @@ Comments:
 - Covered passive partial fills and missed fills.
 - Added a regression check that `market` placement matches the legacy transaction cost model.
 - Added a zero-fill TCA check so fully missed limit orders still produce a valid metrics row with opportunity cost.
+
+### Artifact Cleanup
+
+- Removed tracked Python bytecode files from `src/__pycache__/`.
+- Confirmed `.gitignore` already ignores `__pycache__/` and `*.py[cod]` so new Python cache files should stay out of future commits.
+- Confirmed the execution-grid plan document, CSV reports, and fill-simulator tests are tracked project artifacts rather than ignored local cache files.
