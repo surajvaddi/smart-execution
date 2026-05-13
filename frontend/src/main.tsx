@@ -56,6 +56,8 @@ function App() {
   const [placements, setPlacements] = useState<string[]>(["market", "passive_limit", "adaptive_limit"]);
   const [backtest, setBacktest] = useState<BacktestResponse | null>(null);
   const [grid, setGrid] = useState<GridResponse | null>(null);
+  const [tapeStrategy, setTapeStrategy] = useState("all");
+  const [tapePlacement, setTapePlacement] = useState("all");
   const [mode, setMode] = useState<"backtest" | "grid">("backtest");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +126,18 @@ function App() {
 
   const activeSummary = mode === "grid" && grid ? grid.summary_by_strategy : backtest?.summary ?? [];
   const metricCards = useMemo(() => buildMetricCards(activeSummary), [activeSummary]);
+  const tapeRows = useMemo(
+    () => filterTapeRows(grid?.fills ?? [], tapeStrategy, tapePlacement),
+    [grid, tapeStrategy, tapePlacement]
+  );
+  const tapeStrategies = useMemo(
+    () => ["all", ...unique((grid?.fills ?? []).map((row) => String(row.strategy)))],
+    [grid]
+  );
+  const tapePlacements = useMemo(
+    () => ["all", ...unique((grid?.fills ?? []).map((row) => String(row.placement_style)))],
+    [grid]
+  );
 
   return (
     <main className="shell">
@@ -241,14 +255,76 @@ function App() {
         ) : null}
 
         <section className="surface">
-          <div className="sectionHeader">
-            <Table2 size={18} />
-            <h3>{mode === "grid" ? "Fill Tape" : "Strategy Summary"}</h3>
+          <div className="tableHeader">
+            <div className="sectionHeader">
+              <Table2 size={18} />
+              <h3>{mode === "grid" ? "Fill Tape" : "Strategy Summary"}</h3>
+            </div>
+            {mode === "grid" && grid ? (
+              <FillTapeFilters
+                strategies={tapeStrategies}
+                placements={tapePlacements}
+                selectedStrategy={tapeStrategy}
+                selectedPlacement={tapePlacement}
+                onStrategyChange={setTapeStrategy}
+                onPlacementChange={setTapePlacement}
+                visibleRows={tapeRows.length}
+                totalRows={grid.fills.length}
+              />
+            ) : null}
           </div>
-          <DataTable rows={mode === "grid" && grid ? grid.fills : activeSummary} limit={16} />
+          <DataTable rows={mode === "grid" && grid ? tapeRows : activeSummary} limit={16} />
         </section>
       </section>
     </main>
+  );
+}
+
+function FillTapeFilters({
+  strategies,
+  placements,
+  selectedStrategy,
+  selectedPlacement,
+  onStrategyChange,
+  onPlacementChange,
+  visibleRows,
+  totalRows
+}: {
+  strategies: string[];
+  placements: string[];
+  selectedStrategy: string;
+  selectedPlacement: string;
+  onStrategyChange: (value: string) => void;
+  onPlacementChange: (value: string) => void;
+  visibleRows: number;
+  totalRows: number;
+}) {
+  return (
+    <div className="tableControls">
+      <label>
+        <span>Strategy</span>
+        <select value={selectedStrategy} onChange={(event) => onStrategyChange(event.target.value)}>
+          {strategies.map((strategy) => (
+            <option key={strategy} value={strategy}>
+              {strategy === "all" ? "All strategies" : strategy}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Placement</span>
+        <select value={selectedPlacement} onChange={(event) => onPlacementChange(event.target.value)}>
+          {placements.map((placement) => (
+            <option key={placement} value={placement}>
+              {placement === "all" ? "All placements" : placement}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="rowCount">
+        {visibleRows} / {totalRows}
+      </div>
+    </div>
   );
 }
 
@@ -368,6 +444,14 @@ function togglePlacement(value: string, selected: string[], setSelected: (next: 
   } else {
     setSelected([...selected, value]);
   }
+}
+
+function filterTapeRows(rows: RecordRow[], strategy: string, placement: string) {
+  return rows.filter((row) => {
+    const strategyMatches = strategy === "all" || row.strategy === strategy;
+    const placementMatches = placement === "all" || row.placement_style === placement;
+    return strategyMatches && placementMatches;
+  });
 }
 
 function buildMetricCards(summary: RecordRow[]) {

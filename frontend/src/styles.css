@@ -81,7 +81,8 @@ select {
 .selectRow,
 .sectionHeader,
 .actions button,
-.status {
+.status,
+.tableControls {
   display: flex;
   align-items: center;
 }
@@ -255,6 +256,59 @@ input {
   font-size: 16px;
 }
 
+.tableHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.tableHeader .sectionHeader {
+  margin-bottom: 0;
+}
+
+.tableControls {
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tableControls label {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+}
+
+.tableControls span {
+  color: #667788;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.tableControls select {
+  min-height: 34px;
+  padding: 6px 8px;
+  background: #f7fafc;
+  border-color: #cbd5df;
+  color: #15202b;
+}
+
+.rowCount {
+  min-height: 34px;
+  min-width: 76px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5df;
+  border-radius: 6px;
+  background: #f7fafc;
+  color: #526574;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  align-self: end;
+}
+
 .bars {
   display: grid;
   gap: 12px;
@@ -404,6 +458,15 @@ th {
 
   .status {
     justify-content: flex-start;
+    width: 100%;
+  }
+
+  .tableHeader {
+    flex-direction: column;
+  }
+
+  .tableControls,
+  .tableControls label {
     width: 100%;
   }
 }
