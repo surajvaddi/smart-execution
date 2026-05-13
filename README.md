@@ -141,6 +141,38 @@ python3 -m pip install -r requirements.txt
 
 The project has been developed against Python 3.8 in this local environment. `requirements.txt` includes a Python 3.8-compatible `multitasking` pin required by `yfinance`.
 
+## Web App
+
+The project now includes a FastAPI backend and React/Vite frontend for interactive inspection of saved processed CSVs.
+
+Run the API from the repository root:
+
+```bash
+uvicorn src.api:app --reload --host 127.0.0.1 --port 8000
+```
+
+Run the frontend in a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend is served at:
+
+```text
+http://127.0.0.1:5173
+```
+
+Current dashboard views:
+
+- dataset selector for `data/processed/*.csv`
+- strategy backtest summary
+- implementation shortfall and fill-rate charts
+- execution-grid heatmap by strategy and placement style
+- fill tape preview table
+
 ## Quick Start
 
 From the repository root:
@@ -860,7 +892,7 @@ reports/execution_grid_summary_by_strategy_placement.csv
 - Fill simulation is bar-based; queue and stochastic models are proxies, not true order-book queue position.
 - Current CLI sample backtest runs a limited local SPY sample by default.
 - Final report generation is not yet implemented.
-- No interactive frontend exists yet.
+- Frontend currently targets saved processed CSVs; upload and long-running job management are future work.
 
 ## Roadmap
 
@@ -870,7 +902,7 @@ Planned next phases:
 Phase 9: Required plots
 Phase 10: Experiments and robustness tests
 Phase 11: Final report
-Optional: Streamlit dashboard frontend
+Optional: richer dashboard workflows and upload/job management
 ```
 
 Useful future extensions:
@@ -881,7 +913,7 @@ Useful future extensions:
 - multi-path Monte Carlo summaries for stochastic fills
 - adaptive strategy ablations
 - high-volatility and low-liquidity regime analysis
-- Streamlit dashboard for strategy comparison
+- richer web dashboard workflows for strategy comparison
 - true limit order book data integration
 
 ## Resume Summary

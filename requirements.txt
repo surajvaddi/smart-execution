@@ -7,3 +7,6 @@ matplotlib
 scikit-learn
 statsmodels
 pytest
+fastapi==0.68.2
+uvicorn==0.13.4
+websockets>=13.0
