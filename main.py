@@ -15,8 +15,19 @@ import pandas as pd
 from src.backtester import Backtester
 from src.data_loader import load_and_save_intraday_data
 from src.features import add_microstructure_features, estimate_volume_curve
-from src.fill_simulator import DEFAULT_FILL_MODEL, DEFAULT_RANDOM_SEED, PLACEMENT_STYLES, VALID_FILL_MODELS
+from src.fill_simulator import (
+    DEFAULT_FILL_MODEL,
+    DEFAULT_RANDOM_SEED,
+    PLACEMENT_STYLES,
+    STOCHASTIC_QUEUE_FILL_MODEL,
+    VALID_FILL_MODELS,
+)
 from src.execution import generate_parent_orders, parent_orders_to_frame, parse_time
+from src.monte_carlo import (
+    MonteCarloConfig,
+    run_monte_carlo_execution_grid,
+    summarize_monte_carlo_results,
+)
 from src.rl_backtester import run_rl_backtest_data
 from src.rl_policy import HeuristicExecutionPolicy, QTablePolicy, RandomPolicy
 from src.rl_train import build_training_envs, load_q_table, save_q_table, train_q_policy
@@ -142,6 +153,11 @@ def parse_args() -> argparse.Namespace:
         help="Train a tabular Q policy for Adaptive Ensemble RL execution.",
     )
     parser.add_argument(
+        "--monte-carlo-execution-grid",
+        action="store_true",
+        help="Run repeated execution-grid paths and summarize stochastic fill uncertainty.",
+    )
+    parser.add_argument(
         "--rl-policy",
         choices=["heuristic", "random", "qtable"],
         default="heuristic",
@@ -177,6 +193,18 @@ def parse_args() -> argparse.Namespace:
         help="Discount factor for --rl-train-q.",
     )
     parser.add_argument(
+        "--monte-carlo-paths",
+        type=int,
+        default=20,
+        help="Number of random-seed paths for --monte-carlo-execution-grid.",
+    )
+    parser.add_argument(
+        "--monte-carlo-seed-start",
+        type=int,
+        default=1,
+        help="First random seed for --monte-carlo-execution-grid.",
+    )
+    parser.add_argument(
         "--placement-styles",
         nargs="+",
         choices=PLACEMENT_STYLES,
@@ -186,8 +214,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fill-model",
         choices=sorted(VALID_FILL_MODELS),
-        default=DEFAULT_FILL_MODEL,
-        help="Fill model to use in execution-grid commands.",
+        default=None,
+        help="Fill model to use in execution-grid, Monte Carlo, and RL commands.",
     )
     parser.add_argument(
         "--random-seed",
@@ -311,6 +339,21 @@ def parse_args() -> argparse.Namespace:
         help="Optional CSV path for --rl-backtest-sample results.",
     )
     parser.add_argument(
+        "--monte-carlo-results-output-csv",
+        default=None,
+        help="Optional CSV path for Monte Carlo detailed TCA rows.",
+    )
+    parser.add_argument(
+        "--monte-carlo-fills-output-csv",
+        default=None,
+        help="Optional CSV path for Monte Carlo simulated fills.",
+    )
+    parser.add_argument(
+        "--monte-carlo-summary-output-csv",
+        default=None,
+        help="Optional CSV path for Monte Carlo distribution summary.",
+    )
+    parser.add_argument(
         "--input-csv",
         default="data/processed/SPY_5d_5m.csv",
         help="Processed CSV to use with --feature-sample.",
@@ -388,6 +431,8 @@ def _validate_filter_args(parser: argparse.ArgumentParser, args: argparse.Namesp
             "--input-csvs is required for --alignment-report, --backtest-multi, "
             "--execution-tape, and --execution-grid-multi."
         )
+    if args.monte_carlo_paths < 1:
+        parser.error("--monte-carlo-paths must be at least 1.")
 
 
 def _load_processed_csv(
@@ -603,6 +648,21 @@ def _default_execution_grid_summary_strategy_placement_output_path() -> Path:
 def _default_rl_backtest_output_path(input_path: Path) -> Path:
     """Create a stable default report path for RL backtest results."""
     return Path("reports") / f"rl_backtest_results_{input_path.stem}.csv"
+
+
+def _default_monte_carlo_results_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for Monte Carlo TCA rows."""
+    return Path("reports") / f"monte_carlo_results_{input_path.stem}.csv"
+
+
+def _default_monte_carlo_fills_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for Monte Carlo fill rows."""
+    return Path("reports") / f"monte_carlo_fills_{input_path.stem}.csv"
+
+
+def _default_monte_carlo_summary_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for Monte Carlo summary rows."""
+    return Path("reports") / f"monte_carlo_summary_{input_path.stem}.csv"
 
 
 def _rl_policy_from_args(args: argparse.Namespace):
@@ -1278,7 +1338,7 @@ def main() -> None:
             period=backtester.period,
             interval=backtester.interval,
             placement_styles=args.placement_styles or PLACEMENT_STYLES.copy(),
-            fill_model=args.fill_model,
+            fill_model=args.fill_model or DEFAULT_FILL_MODEL,
             random_seed=args.random_seed,
             max_orders_per_ticker=args.max_orders_per_ticker,
         )
@@ -1311,7 +1371,7 @@ def main() -> None:
             period=backtester.period,
             interval=backtester.interval,
             placement_styles=args.placement_styles or PLACEMENT_STYLES.copy(),
-            fill_model=args.fill_model,
+            fill_model=args.fill_model or DEFAULT_FILL_MODEL,
             random_seed=args.random_seed,
             max_orders_per_ticker=args.max_orders_per_ticker,
         )
@@ -1364,7 +1424,7 @@ def main() -> None:
         results = run_rl_backtest_data(
             data=data,
             policy=policy,
-            fill_model=args.fill_model,
+            fill_model=args.fill_model or DEFAULT_FILL_MODEL,
             max_orders_per_ticker=args.max_orders_per_ticker,
             include_baselines=True,
         )
@@ -1378,7 +1438,7 @@ def main() -> None:
 
         print(f"Ran RL backtest from {input_path}.")
         print(f"RL policy: {args.rl_policy}.")
-        print(f"Fill model: {args.fill_model}.")
+        print(f"Fill model: {args.fill_model or DEFAULT_FILL_MODEL}.")
         print(f"Result rows: {len(results):,}.")
         print(f"Saved RL backtest results to {output_path}.")
         display_cols = [
@@ -1395,7 +1455,7 @@ def main() -> None:
         input_path, data = _load_processed_csv_from_args(args)
         envs = build_training_envs(
             data=data,
-            fill_model=args.fill_model,
+            fill_model=args.fill_model or DEFAULT_FILL_MODEL,
             max_orders_per_ticker=args.max_orders_per_ticker,
         )
         q_table = train_q_policy(
@@ -1413,6 +1473,73 @@ def main() -> None:
         print(f"Episodes: {args.q_episodes:,}.")
         print(f"State buckets learned: {len(q_table):,}.")
         print(f"Saved Q-table to {output_path}.")
+    elif args.monte_carlo_execution_grid:
+        # Monte Carlo path: rerun the placement grid across seed paths and
+        # summarize the distribution of modeled stochastic fill outcomes.
+        input_path, data = _load_processed_csv_from_args(args)
+        seeds = list(
+            range(
+                args.monte_carlo_seed_start,
+                args.monte_carlo_seed_start + args.monte_carlo_paths,
+            )
+        )
+        fill_model = args.fill_model or STOCHASTIC_QUEUE_FILL_MODEL
+        config = MonteCarloConfig(
+            seeds=seeds,
+            placement_styles=args.placement_styles or PLACEMENT_STYLES.copy(),
+            fill_model=fill_model,
+            max_orders_per_ticker=args.max_orders_per_ticker,
+        )
+        results, fills = run_monte_carlo_execution_grid(
+            data=data,
+            config=config,
+            tickers=backtester.tickers,
+        )
+        summary = summarize_monte_carlo_results(results)
+
+        results_path = (
+            Path(args.monte_carlo_results_output_csv)
+            if args.monte_carlo_results_output_csv
+            else _default_monte_carlo_results_output_path(input_path)
+        )
+        fills_path = (
+            Path(args.monte_carlo_fills_output_csv)
+            if args.monte_carlo_fills_output_csv
+            else _default_monte_carlo_fills_output_path(input_path)
+        )
+        summary_path = (
+            Path(args.monte_carlo_summary_output_csv)
+            if args.monte_carlo_summary_output_csv
+            else _default_monte_carlo_summary_output_path(input_path)
+        )
+        for output_path, frame in [
+            (results_path, results),
+            (fills_path, fills),
+            (summary_path, summary),
+        ]:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            frame.to_csv(output_path, index=False)
+
+        print(f"Ran Monte Carlo execution grid from {input_path}.")
+        print(f"Paths: {len(seeds):,}.")
+        print(f"Fill model: {fill_model}.")
+        print(f"Placement styles: {', '.join(config.placement_styles or [])}")
+        print(f"Detailed result rows: {len(results):,}.")
+        print(f"Simulated fill rows: {len(fills):,}.")
+        print(f"Saved detailed results to {results_path}.")
+        print(f"Saved simulated fills to {fills_path}.")
+        print(f"Saved Monte Carlo summary to {summary_path}.")
+        display_cols = [
+            "strategy",
+            "placement_style",
+            "num_paths",
+            "fill_rate_mean",
+            "fill_rate_p10",
+            "fill_rate_p90",
+            "implementation_shortfall_bps_mean",
+            "implementation_shortfall_bps_p90",
+        ]
+        print(summary[display_cols].to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -1433,6 +1560,7 @@ def main() -> None:
         print("Execution-grid simulation is available. Use --execution-grid-sample.")
         print("Adaptive Ensemble RL backtest is available. Use --rl-backtest-sample.")
         print("Adaptive Ensemble RL Q-training is available. Use --rl-train-q.")
+        print("Monte Carlo execution-grid summaries are available. Use --monte-carlo-execution-grid.")
 
 
 if __name__ == "__main__":

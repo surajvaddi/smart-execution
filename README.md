@@ -451,6 +451,45 @@ This models the common backtest problem where passive orders appear cheap
 because they fill at favorable prices, but those fills may happen right before
 the market moves against the trade.
 
+### Monte Carlo Execution Summaries
+
+Use Monte Carlo summaries when you want to understand how sensitive the
+execution grid is to stochastic fill outcomes:
+
+```bash
+python3 main.py \
+  --monte-carlo-execution-grid \
+  --input-csv data/processed/SPY_5d_5m.csv \
+  --monte-carlo-paths 25 \
+  --max-orders-per-ticker 1
+```
+
+Outputs:
+
+```text
+reports/monte_carlo_results_SPY_5d_5m.csv
+reports/monte_carlo_fills_SPY_5d_5m.csv
+reports/monte_carlo_summary_SPY_5d_5m.csv
+```
+
+The Monte Carlo path reruns the same strategy-by-placement grid across a range
+of random seeds. If `--fill-model` is left at its deterministic default, the
+CLI uses `stochastic_queue_touch` for this command so the repeated paths have
+fill uncertainty. You can still override it explicitly with `--fill-model`.
+
+The summary groups by `strategy` and `placement_style`, then reports:
+
+```text
+num_paths
+num_simulations
+mean / median / p10 / p90 / std for each main TCA metric
+```
+
+This is useful for comparing not only average cost, but also downside cases.
+For example, `implementation_shortfall_bps_p90` shows a worse-tail simulated
+outcome for a strategy-placement pair, while `fill_rate_p10` highlights
+placements that often leave inventory behind.
+
 ### Adaptive Ensemble RL Execution
 
 The RL research layer treats each parent order as a bar-by-bar episode. At each

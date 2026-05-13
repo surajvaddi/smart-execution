@@ -271,3 +271,12 @@ Comments:
 - Ignored generated `artifacts/models/*.pkl` files so local model artifacts do not pollute commits.
 - Added tests for Q-table training, save, and load.
 - Verified training a sample Q-table and using it through `--rl-policy qtable`.
+
+### Monte Carlo Execution Summaries
+
+- Added `src/monte_carlo.py` with repeated execution-grid runs over multiple random seeds.
+- Added `MonteCarloConfig`, `run_monte_carlo_execution_grid()`, and `summarize_monte_carlo_results()`.
+- Added `main.py --monte-carlo-execution-grid` with path count, seed start, placement style, fill model, and output CSV controls.
+- Added default Monte Carlo outputs under `reports/monte_carlo_results_*.csv`, `reports/monte_carlo_fills_*.csv`, and `reports/monte_carlo_summary_*.csv`.
+- Added summary statistics for mean, median, p10, p90, and standard deviation across main TCA metrics.
+- Added pytest coverage for repeated seed execution and summary distribution columns.
