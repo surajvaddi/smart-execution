@@ -289,3 +289,13 @@ Comments:
 - Added CLI controls for default capacity multiplier and default queue priority fallback values.
 - Documented fill config knobs in the README.
 - Added tests for fill config override construction and validation.
+
+### Report Plots
+
+- Implemented `src/plots.py` with static matplotlib PNG generation.
+- Added strategy TCA cost and strategy fill-rate bar plots.
+- Added execution-grid heatmaps for implementation shortfall and fill rate.
+- Added Monte Carlo interval plots for mean with p10/p90 ranges.
+- Added `main.py --plot-reports` with configurable input summary CSVs and output directory.
+- Documented plot generation in the README.
+- Added pytest coverage that verifies plot functions write non-empty PNG files.

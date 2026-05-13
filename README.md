@@ -517,6 +517,41 @@ For example, `implementation_shortfall_bps_p90` shows a worse-tail simulated
 outcome for a strategy-placement pair, while `fill_rate_p10` highlights
 placements that often leave inventory behind.
 
+### Report Plots
+
+Generate static PNG plots from saved summary CSVs:
+
+```bash
+python3 main.py --plot-reports
+```
+
+Default outputs:
+
+```text
+reports/figures/strategy_tca_costs.png
+reports/figures/strategy_fill_rates.png
+reports/figures/execution_grid_shortfall_heatmap.png
+reports/figures/execution_grid_fill_rate_heatmap.png
+```
+
+If a matching Monte Carlo summary exists, the command also writes:
+
+```text
+reports/figures/monte_carlo_shortfall_intervals.png
+reports/figures/monte_carlo_fill_rate_intervals.png
+```
+
+Useful overrides:
+
+```bash
+python3 main.py \
+  --plot-reports \
+  --plot-backtest-summary-csv reports/backtest_summary_SPY_5d_5m.csv \
+  --plot-execution-grid-summary-csv reports/execution_grid_summary_by_strategy_placement.csv \
+  --plot-monte-carlo-summary-csv reports/monte_carlo_summary_SPY_5d_5m.csv \
+  --plot-output-dir reports/figures
+```
+
 ### Adaptive Ensemble RL Execution
 
 The RL research layer treats each parent order as a bar-by-bar episode. At each
@@ -824,7 +859,7 @@ reports/execution_grid_summary_by_strategy_placement.csv
 - Impact parameters are not calibrated to real market impact data.
 - Fill simulation is bar-based; queue and stochastic models are proxies, not true order-book queue position.
 - Current CLI sample backtest runs a limited local SPY sample by default.
-- Plotting functions and final report generation are not yet implemented.
+- Final report generation is not yet implemented.
 - No interactive frontend exists yet.
 
 ## Roadmap

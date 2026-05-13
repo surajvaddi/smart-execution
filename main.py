@@ -29,6 +29,7 @@ from src.monte_carlo import (
     run_monte_carlo_execution_grid,
     summarize_monte_carlo_results,
 )
+from src.plots import FIGURES_DIR, generate_report_plots
 from src.rl_backtester import run_rl_backtest_data
 from src.rl_policy import HeuristicExecutionPolicy, QTablePolicy, RandomPolicy
 from src.rl_train import build_training_envs, load_q_table, save_q_table, train_q_policy
@@ -157,6 +158,11 @@ def parse_args() -> argparse.Namespace:
         "--monte-carlo-execution-grid",
         action="store_true",
         help="Run repeated execution-grid paths and summarize stochastic fill uncertainty.",
+    )
+    parser.add_argument(
+        "--plot-reports",
+        action="store_true",
+        help="Generate static PNG report plots from saved summary CSV files.",
     )
     parser.add_argument(
         "--rl-policy",
@@ -379,6 +385,26 @@ def parse_args() -> argparse.Namespace:
         "--monte-carlo-summary-output-csv",
         default=None,
         help="Optional CSV path for Monte Carlo distribution summary.",
+    )
+    parser.add_argument(
+        "--plot-output-dir",
+        default=str(FIGURES_DIR),
+        help="Directory for --plot-reports PNG outputs.",
+    )
+    parser.add_argument(
+        "--plot-backtest-summary-csv",
+        default="reports/backtest_summary_SPY_5d_5m.csv",
+        help="Backtest summary CSV for --plot-reports.",
+    )
+    parser.add_argument(
+        "--plot-execution-grid-summary-csv",
+        default="reports/execution_grid_summary_by_strategy_placement.csv",
+        help="Execution-grid strategy-placement summary CSV for --plot-reports.",
+    )
+    parser.add_argument(
+        "--plot-monte-carlo-summary-csv",
+        default=None,
+        help="Optional Monte Carlo summary CSV for --plot-reports.",
     )
     parser.add_argument(
         "--input-csv",
@@ -719,6 +745,11 @@ def _default_monte_carlo_fills_output_path(input_path: Path) -> Path:
 def _default_monte_carlo_summary_output_path(input_path: Path) -> Path:
     """Create a stable default report path for Monte Carlo summary rows."""
     return Path("reports") / f"monte_carlo_summary_{input_path.stem}.csv"
+
+
+def _default_plot_monte_carlo_summary_path(input_path: str) -> Path:
+    """Infer the Monte Carlo summary path that matches the default input CSV."""
+    return Path("reports") / f"monte_carlo_summary_{Path(input_path).stem}.csv"
 
 
 def _rl_policy_from_args(args: argparse.Namespace):
@@ -1602,6 +1633,25 @@ def main() -> None:
             "implementation_shortfall_bps_p90",
         ]
         print(summary[display_cols].to_string(index=False))
+    elif args.plot_reports:
+        # Plotting path: read saved summary CSVs and write report-ready figures.
+        monte_carlo_path = (
+            Path(args.plot_monte_carlo_summary_csv)
+            if args.plot_monte_carlo_summary_csv
+            else _default_plot_monte_carlo_summary_path(args.input_csv)
+        )
+        generated = generate_report_plots(
+            backtest_summary_csv=args.plot_backtest_summary_csv,
+            execution_grid_summary_csv=args.plot_execution_grid_summary_csv,
+            monte_carlo_summary_csv=monte_carlo_path,
+            output_dir=args.plot_output_dir,
+        )
+
+        print(f"Generated {len(generated):,} report plots.")
+        if not generated:
+            print("No plots were generated because none of the configured input CSVs exist.")
+        for path in generated:
+            print(f"Saved plot to {path}.")
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -1623,6 +1673,7 @@ def main() -> None:
         print("Adaptive Ensemble RL backtest is available. Use --rl-backtest-sample.")
         print("Adaptive Ensemble RL Q-training is available. Use --rl-train-q.")
         print("Monte Carlo execution-grid summaries are available. Use --monte-carlo-execution-grid.")
+        print("Report plotting is available. Use --plot-reports.")
 
 
 if __name__ == "__main__":
