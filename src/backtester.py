@@ -363,6 +363,23 @@ class Backtester:
         summary.to_csv(summary_output, index=False)
         return results_output, summary_output
 
-    def run(self) -> None:
-        """Run the backtest."""
-        raise NotImplementedError("Backtest orchestration will be implemented in Phase 8.")
+    def run(
+        self,
+        data: pd.DataFrame | None = None,
+        input_csv: str | Path | None = None,
+        input_csvs: list[str | Path] | None = None,
+    ) -> pd.DataFrame:
+        """Run the configured default backtest from data or processed CSV input."""
+        provided_inputs = [
+            data is not None,
+            input_csv is not None,
+            input_csvs is not None,
+        ]
+        if sum(provided_inputs) != 1:
+            raise ValueError("Provide exactly one of data, input_csv, or input_csvs.")
+
+        if data is not None:
+            return self.run_single_ticker_data(data)
+        if input_csv is not None:
+            return self.run_single_ticker_csv(input_csv)
+        return self.run_multiple_csvs(input_csvs or [])
