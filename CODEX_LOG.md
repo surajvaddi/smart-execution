@@ -262,3 +262,12 @@ Comments:
 - Added `--rl-policy heuristic|random|qtable`, `--q-table-path`, and `--rl-backtest-output-csv`.
 - Added `QTablePolicy` so saved Q-tables can be used by the CLI once training output exists.
 - Verified the heuristic RL CLI path against the saved SPY sample.
+
+### RL Q-Training CLI
+
+- Added `main.py --rl-train-q` to train the tabular Q-learning policy from generated parent-order environments.
+- Added Q-training controls for episodes, epsilon, alpha, gamma, random seed, fill model, and Q-table output path.
+- Added `build_training_envs()` to create one `ExecutionEnv` per generated parent order.
+- Ignored generated `artifacts/models/*.pkl` files so local model artifacts do not pollute commits.
+- Added tests for Q-table training, save, and load.
+- Verified training a sample Q-table and using it through `--rl-policy qtable`.

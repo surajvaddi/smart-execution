@@ -19,7 +19,7 @@ from src.fill_simulator import DEFAULT_FILL_MODEL, DEFAULT_RANDOM_SEED, PLACEMEN
 from src.execution import generate_parent_orders, parent_orders_to_frame, parse_time
 from src.rl_backtester import run_rl_backtest_data
 from src.rl_policy import HeuristicExecutionPolicy, QTablePolicy, RandomPolicy
-from src.rl_train import load_q_table
+from src.rl_train import build_training_envs, load_q_table, save_q_table, train_q_policy
 from src.signals import (
     DEFAULT_HORIZONS,
     add_forward_returns,
@@ -137,6 +137,11 @@ def parse_args() -> argparse.Namespace:
         help="Run a sample Adaptive Ensemble RL backtest.",
     )
     parser.add_argument(
+        "--rl-train-q",
+        action="store_true",
+        help="Train a tabular Q policy for Adaptive Ensemble RL execution.",
+    )
+    parser.add_argument(
         "--rl-policy",
         choices=["heuristic", "random", "qtable"],
         default="heuristic",
@@ -146,6 +151,30 @@ def parse_args() -> argparse.Namespace:
         "--q-table-path",
         default="artifacts/models/q_policy.pkl",
         help="Q-table path for --rl-policy qtable.",
+    )
+    parser.add_argument(
+        "--q-episodes",
+        type=int,
+        default=10,
+        help="Number of Q-learning training episodes for --rl-train-q.",
+    )
+    parser.add_argument(
+        "--q-epsilon",
+        type=float,
+        default=0.20,
+        help="Exploration rate for --rl-train-q.",
+    )
+    parser.add_argument(
+        "--q-alpha",
+        type=float,
+        default=0.10,
+        help="Learning rate for --rl-train-q.",
+    )
+    parser.add_argument(
+        "--q-gamma",
+        type=float,
+        default=0.90,
+        help="Discount factor for --rl-train-q.",
     )
     parser.add_argument(
         "--placement-styles",
@@ -1360,6 +1389,30 @@ def main() -> None:
             "opportunity_cost_bps",
         ]
         print(results[display_cols].to_string(index=False))
+    elif args.rl_train_q:
+        # Tabular Q-learning path: build one environment per generated parent
+        # order and save the resulting Q-table for later qtable-policy runs.
+        input_path, data = _load_processed_csv_from_args(args)
+        envs = build_training_envs(
+            data=data,
+            fill_model=args.fill_model,
+            max_orders_per_ticker=args.max_orders_per_ticker,
+        )
+        q_table = train_q_policy(
+            envs=envs,
+            episodes=args.q_episodes,
+            epsilon=args.q_epsilon,
+            alpha=args.q_alpha,
+            gamma=args.q_gamma,
+            seed=args.random_seed,
+        )
+        output_path = save_q_table(q_table, args.q_table_path)
+
+        print(f"Trained tabular Q policy from {input_path}.")
+        print(f"Training environments: {len(envs):,}.")
+        print(f"Episodes: {args.q_episodes:,}.")
+        print(f"State buckets learned: {len(q_table):,}.")
+        print(f"Saved Q-table to {output_path}.")
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -1379,6 +1432,7 @@ def main() -> None:
         print("Multi-ticker execution tape is available. Use --execution-tape --input-csvs ...")
         print("Execution-grid simulation is available. Use --execution-grid-sample.")
         print("Adaptive Ensemble RL backtest is available. Use --rl-backtest-sample.")
+        print("Adaptive Ensemble RL Q-training is available. Use --rl-train-q.")
 
 
 if __name__ == "__main__":

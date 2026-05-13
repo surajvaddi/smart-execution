@@ -10,6 +10,9 @@ from typing import Dict, Iterable, Tuple
 
 import pandas as pd
 
+from src.execution import generate_parent_orders
+from src.features import add_microstructure_features
+from src.fill_simulator import DEFAULT_FILL_MODEL
 from src.rl_env import ACTION_SPACE, ExecutionEnv
 
 
@@ -89,6 +92,30 @@ def train_q_policy(
                 state = next_state
 
     return dict(q_table)
+
+
+def build_training_envs(
+    data: pd.DataFrame,
+    fill_model: str = DEFAULT_FILL_MODEL,
+    max_orders_per_ticker: int | None = 1,
+) -> list[ExecutionEnv]:
+    """Build one RL environment per generated parent order."""
+    featured = add_microstructure_features(data) if "spread_proxy" not in data.columns else data
+    parent_orders = generate_parent_orders(
+        featured,
+        max_orders_per_ticker=max_orders_per_ticker,
+    )
+    if not parent_orders:
+        raise ValueError("No parent orders generated from input data.")
+    return [
+        ExecutionEnv(
+            order=order,
+            market_data=featured,
+            strategies={},
+            fill_model=fill_model,
+        )
+        for order in parent_orders
+    ]
 
 
 def save_q_table(q_table: QTable, path: str | Path = "artifacts/models/q_policy.pkl") -> Path:

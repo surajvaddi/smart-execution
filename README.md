@@ -513,6 +513,27 @@ qtable
 Use `--q-table-path artifacts/models/q_policy.pkl` with `--rl-policy qtable`
 after training a Q-table.
 
+Train a small tabular Q policy:
+
+```bash
+python3 main.py \
+  --rl-train-q \
+  --input-csv data/processed/SPY_5d_5m.csv \
+  --max-orders-per-ticker 1 \
+  --q-episodes 10 \
+  --q-table-path artifacts/models/q_policy.pkl
+```
+
+Then evaluate it:
+
+```bash
+python3 main.py \
+  --rl-backtest-sample \
+  --input-csv data/processed/SPY_5d_5m.csv \
+  --rl-policy qtable \
+  --q-table-path artifacts/models/q_policy.pkl
+```
+
 ### Narrow The Date Or Time Range
 
 Most commands that read `--input-csv` also accept optional inclusive filters:

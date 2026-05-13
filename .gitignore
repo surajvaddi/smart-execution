@@ -8,3 +8,5 @@ data/raw/*.csv
 data/processed/*.csv
 reports/figures/*
 !reports/figures/.gitkeep
+
+artifacts/models/*.pkl
