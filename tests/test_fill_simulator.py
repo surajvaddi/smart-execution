@@ -9,7 +9,12 @@ from datetime import time
 import pandas as pd
 
 from src.execution import ParentOrder
-from src.fill_simulator import FillModelConfig, add_order_placement, place_and_simulate_fills
+from src.fill_simulator import (
+    FillModelConfig,
+    add_order_placement,
+    build_fill_model_config,
+    place_and_simulate_fills,
+)
 from src.tca import apply_transaction_cost_model, compute_tca_metrics
 
 
@@ -210,6 +215,27 @@ class FillSimulatorTest(unittest.TestCase):
         )
 
         self.assertAlmostEqual(fills.loc[0, "filled_quantity"], 100.0)
+
+    def test_build_fill_model_config_applies_capacity_and_priority_overrides(self) -> None:
+        """Config builder should expose fill assumptions without mutating defaults."""
+        config = build_fill_model_config(
+            capacity_multipliers={"passive_limit": 0.10},
+            queue_priorities={"passive_limit": 0.80},
+            default_capacity_multiplier=0.20,
+            default_queue_priority=0.40,
+        )
+
+        self.assertAlmostEqual(config.capacity_multipliers["passive_limit"], 0.10)
+        self.assertAlmostEqual(config.queue_priorities["passive_limit"], 0.80)
+        self.assertAlmostEqual(config.default_capacity_multiplier, 0.20)
+        self.assertAlmostEqual(config.default_queue_priority, 0.40)
+
+    def test_build_fill_model_config_rejects_invalid_overrides(self) -> None:
+        """Config overrides should reject unknown styles and invalid priorities."""
+        with self.assertRaises(ValueError):
+            build_fill_model_config(capacity_multipliers={"unknown": 0.10})
+        with self.assertRaises(ValueError):
+            build_fill_model_config(queue_priorities={"passive_limit": 1.50})
 
     def test_stochastic_queue_touch_is_seed_reproducible(self) -> None:
         """Stochastic fills should be reproducible with a fixed seed."""

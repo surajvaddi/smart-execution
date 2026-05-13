@@ -280,3 +280,12 @@ Comments:
 - Added default Monte Carlo outputs under `reports/monte_carlo_results_*.csv`, `reports/monte_carlo_fills_*.csv`, and `reports/monte_carlo_summary_*.csv`.
 - Added summary statistics for mean, median, p10, p90, and standard deviation across main TCA metrics.
 - Added pytest coverage for repeated seed execution and summary distribution columns.
+
+### Fill Model Config CLI
+
+- Added `build_fill_model_config()` to create validated fill-model assumption overrides.
+- Threaded `FillModelConfig` through `Backtester`, Monte Carlo execution grids, RL backtests, and RL Q-training environments.
+- Added CLI controls for placement-specific capacity multipliers and queue priorities.
+- Added CLI controls for default capacity multiplier and default queue priority fallback values.
+- Documented fill config knobs in the README.
+- Added tests for fill config override construction and validation.

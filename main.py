@@ -21,6 +21,7 @@ from src.fill_simulator import (
     PLACEMENT_STYLES,
     STOCHASTIC_QUEUE_FILL_MODEL,
     VALID_FILL_MODELS,
+    build_fill_model_config,
 )
 from src.execution import generate_parent_orders, parent_orders_to_frame, parse_time
 from src.monte_carlo import (
@@ -222,6 +223,32 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_RANDOM_SEED,
         help="Random seed for stochastic execution-grid fill models.",
+    )
+    parser.add_argument(
+        "--fill-capacity-multiplier",
+        action="append",
+        default=[],
+        metavar="STYLE=VALUE",
+        help="Override fill capacity multiplier for a placement style; may be repeated.",
+    )
+    parser.add_argument(
+        "--fill-queue-priority",
+        action="append",
+        default=[],
+        metavar="STYLE=VALUE",
+        help="Override queue priority for a placement style; may be repeated.",
+    )
+    parser.add_argument(
+        "--default-fill-capacity-multiplier",
+        type=float,
+        default=None,
+        help="Fallback fill capacity multiplier for placement styles without an explicit override.",
+    )
+    parser.add_argument(
+        "--default-fill-queue-priority",
+        type=float,
+        default=None,
+        help="Fallback queue priority for placement styles without an explicit override.",
     )
     parser.add_argument(
         "--orders-output-csv",
@@ -433,6 +460,10 @@ def _validate_filter_args(parser: argparse.ArgumentParser, args: argparse.Namesp
         )
     if args.monte_carlo_paths < 1:
         parser.error("--monte-carlo-paths must be at least 1.")
+    try:
+        _fill_config_from_args(args)
+    except ValueError as exc:
+        parser.error(str(exc))
 
 
 def _load_processed_csv(
@@ -513,6 +544,31 @@ def _load_processed_csvs_from_args(args: argparse.Namespace) -> pd.DataFrame:
         frames.append(data)
 
     return pd.concat(frames).sort_index()
+
+
+def _fill_config_from_args(args: argparse.Namespace):
+    """Build the fill model config requested by CLI override flags."""
+    return build_fill_model_config(
+        capacity_multipliers=_parse_style_float_overrides(args.fill_capacity_multiplier),
+        queue_priorities=_parse_style_float_overrides(args.fill_queue_priority),
+        default_capacity_multiplier=args.default_fill_capacity_multiplier,
+        default_queue_priority=args.default_fill_queue_priority,
+    )
+
+
+def _parse_style_float_overrides(values: list[str]) -> dict[str, float]:
+    """Parse repeated STYLE=VALUE override arguments."""
+    parsed: dict[str, float] = {}
+    for raw in values:
+        if "=" not in raw:
+            raise ValueError(f"Expected STYLE=VALUE, got {raw!r}.")
+        style, value = raw.split("=", 1)
+        style = style.strip()
+        try:
+            parsed[style] = float(value)
+        except ValueError as exc:
+            raise ValueError(f"Expected numeric value in {raw!r}.") from exc
+    return parsed
 
 
 def _default_signal_output_path(input_path: Path) -> Path:
@@ -826,6 +882,7 @@ def main() -> None:
     """Create the backtester configuration and print the current scaffold status."""
     args = parse_args()
     backtester = Backtester(tickers=DEFAULT_TICKERS)
+    fill_config = _fill_config_from_args(args)
     print("Smart Execution Backtester scaffold is ready.")
     print(f"Tickers: {', '.join(backtester.tickers)}")
     print(f"Data settings: period={backtester.period}, interval={backtester.interval}")
@@ -1339,6 +1396,7 @@ def main() -> None:
             interval=backtester.interval,
             placement_styles=args.placement_styles or PLACEMENT_STYLES.copy(),
             fill_model=args.fill_model or DEFAULT_FILL_MODEL,
+            fill_config=fill_config,
             random_seed=args.random_seed,
             max_orders_per_ticker=args.max_orders_per_ticker,
         )
@@ -1372,6 +1430,7 @@ def main() -> None:
             interval=backtester.interval,
             placement_styles=args.placement_styles or PLACEMENT_STYLES.copy(),
             fill_model=args.fill_model or DEFAULT_FILL_MODEL,
+            fill_config=fill_config,
             random_seed=args.random_seed,
             max_orders_per_ticker=args.max_orders_per_ticker,
         )
@@ -1425,6 +1484,7 @@ def main() -> None:
             data=data,
             policy=policy,
             fill_model=args.fill_model or DEFAULT_FILL_MODEL,
+            fill_config=fill_config,
             max_orders_per_ticker=args.max_orders_per_ticker,
             include_baselines=True,
         )
@@ -1456,6 +1516,7 @@ def main() -> None:
         envs = build_training_envs(
             data=data,
             fill_model=args.fill_model or DEFAULT_FILL_MODEL,
+            fill_config=fill_config,
             max_orders_per_ticker=args.max_orders_per_ticker,
         )
         q_table = train_q_policy(
@@ -1488,6 +1549,7 @@ def main() -> None:
             seeds=seeds,
             placement_styles=args.placement_styles or PLACEMENT_STYLES.copy(),
             fill_model=fill_model,
+            fill_config=fill_config,
             max_orders_per_ticker=args.max_orders_per_ticker,
         )
         results, fills = run_monte_carlo_execution_grid(

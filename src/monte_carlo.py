@@ -7,13 +7,14 @@ OHLCV-derived synthetic fills, not real order-book execution outcomes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
 from src.backtester import Backtester, SUMMARY_METRIC_COLUMNS
 from src.fill_simulator import (
     PLACEMENT_STYLES,
+    FillModelConfig,
     STOCHASTIC_QUEUE_FILL_MODEL,
 )
 
@@ -28,6 +29,7 @@ class MonteCarloConfig:
     seeds: list[int]
     placement_styles: list[str] | None = None
     fill_model: str = STOCHASTIC_QUEUE_FILL_MODEL
+    fill_config: FillModelConfig = field(default_factory=FillModelConfig)
     max_orders_per_ticker: int | None = 1
 
 
@@ -47,6 +49,7 @@ def run_monte_carlo_execution_grid(
             tickers=tickers or sorted(data["ticker"].unique().tolist()),
             placement_styles=config.placement_styles or PLACEMENT_STYLES.copy(),
             fill_model=config.fill_model,
+            fill_config=config.fill_config,
             random_seed=seed,
             max_orders_per_ticker=config.max_orders_per_ticker,
         )

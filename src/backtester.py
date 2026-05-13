@@ -9,7 +9,13 @@ import pandas as pd
 
 from src.execution import ParentOrder, generate_parent_orders
 from src.features import add_microstructure_features
-from src.fill_simulator import DEFAULT_FILL_MODEL, DEFAULT_RANDOM_SEED, PLACEMENT_STYLES, place_and_simulate_fills
+from src.fill_simulator import (
+    DEFAULT_FILL_MODEL,
+    DEFAULT_RANDOM_SEED,
+    PLACEMENT_STYLES,
+    FillModelConfig,
+    place_and_simulate_fills,
+)
 from src.strategies import AdaptiveStrategy, ExecutionStrategy, POVStrategy, TWAPStrategy, VWAPStrategy
 from src.tca import apply_transaction_cost_model, compute_tca_metrics
 
@@ -49,6 +55,7 @@ class Backtester:
     strategies: list[ExecutionStrategy] = field(default_factory=default_strategies)
     placement_styles: list[str] = field(default_factory=lambda: PLACEMENT_STYLES.copy())
     fill_model: str = DEFAULT_FILL_MODEL
+    fill_config: FillModelConfig = field(default_factory=FillModelConfig)
     random_seed: int | None = DEFAULT_RANDOM_SEED
     max_orders_per_ticker: int | None = 20
 
@@ -125,6 +132,7 @@ class Backtester:
             placement_style=placement_style,
             parent_order=order,
             fill_model=self.fill_model,
+            fill_config=self.fill_config,
             random_seed=self.random_seed,
         )
         metrics = compute_tca_metrics(order, simulated_fills, data)

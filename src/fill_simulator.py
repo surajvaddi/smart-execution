@@ -72,6 +72,49 @@ class FillModelConfig:
 DEFAULT_FILL_CONFIG = FillModelConfig()
 
 
+def build_fill_model_config(
+    capacity_multipliers: dict[str, float] | None = None,
+    queue_priorities: dict[str, float] | None = None,
+    default_capacity_multiplier: float | None = None,
+    default_queue_priority: float | None = None,
+) -> FillModelConfig:
+    """Return fill-model config with validated overrides applied."""
+    capacities = DEFAULT_FILL_CONFIG.capacity_multipliers.copy()
+    priorities = DEFAULT_FILL_CONFIG.queue_priorities.copy()
+
+    if capacity_multipliers:
+        for style, value in capacity_multipliers.items():
+            _validate_fill_config_style(style)
+            _validate_non_negative(value, f"capacity multiplier for {style}")
+            capacities[style] = float(value)
+
+    if queue_priorities:
+        for style, value in queue_priorities.items():
+            _validate_fill_config_style(style)
+            _validate_probability(value, f"queue priority for {style}")
+            priorities[style] = float(value)
+
+    default_capacity = (
+        DEFAULT_FILL_CONFIG.default_capacity_multiplier
+        if default_capacity_multiplier is None
+        else float(default_capacity_multiplier)
+    )
+    default_priority = (
+        DEFAULT_FILL_CONFIG.default_queue_priority
+        if default_queue_priority is None
+        else float(default_queue_priority)
+    )
+    _validate_non_negative(default_capacity, "default capacity multiplier")
+    _validate_probability(default_priority, "default queue priority")
+
+    return FillModelConfig(
+        capacity_multipliers=capacities,
+        queue_priorities=priorities,
+        default_capacity_multiplier=default_capacity,
+        default_queue_priority=default_priority,
+    )
+
+
 def add_order_placement(
     child_orders: pd.DataFrame,
     market_data: pd.DataFrame,
@@ -477,6 +520,24 @@ def _queue_priority(resolved_style: str, fill_config: FillModelConfig) -> float:
         resolved_style,
         fill_config.default_queue_priority,
     )
+
+
+def _validate_fill_config_style(style: str) -> None:
+    """Validate placement-style names used in fill config overrides."""
+    if style not in PLACEMENT_STYLES:
+        raise ValueError(f"Fill config style must be one of {PLACEMENT_STYLES}, got {style!r}.")
+
+
+def _validate_non_negative(value: float, label: str) -> None:
+    """Validate that a fill configuration value is not negative."""
+    if float(value) < 0:
+        raise ValueError(f"{label} must be non-negative, got {value!r}.")
+
+
+def _validate_probability(value: float, label: str) -> None:
+    """Validate a fill configuration probability-like value."""
+    if not 0.0 <= float(value) <= 1.0:
+        raise ValueError(f"{label} must be between 0 and 1, got {value!r}.")
 
 
 def _post_fill_return(row: pd.Series, fill_price: float) -> float:

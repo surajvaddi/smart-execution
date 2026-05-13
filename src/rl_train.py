@@ -12,7 +12,7 @@ import pandas as pd
 
 from src.execution import generate_parent_orders
 from src.features import add_microstructure_features
-from src.fill_simulator import DEFAULT_FILL_MODEL
+from src.fill_simulator import DEFAULT_FILL_CONFIG, DEFAULT_FILL_MODEL, FillModelConfig
 from src.rl_env import ACTION_SPACE, ExecutionEnv
 
 
@@ -97,9 +97,11 @@ def train_q_policy(
 def build_training_envs(
     data: pd.DataFrame,
     fill_model: str = DEFAULT_FILL_MODEL,
+    fill_config: FillModelConfig | None = None,
     max_orders_per_ticker: int | None = 1,
 ) -> list[ExecutionEnv]:
     """Build one RL environment per generated parent order."""
+    fill_config = fill_config or DEFAULT_FILL_CONFIG
     featured = add_microstructure_features(data) if "spread_proxy" not in data.columns else data
     parent_orders = generate_parent_orders(
         featured,
@@ -113,6 +115,7 @@ def build_training_envs(
             market_data=featured,
             strategies={},
             fill_model=fill_model,
+            fill_config=fill_config,
         )
         for order in parent_orders
     ]

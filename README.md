@@ -451,6 +451,33 @@ This models the common backtest problem where passive orders appear cheap
 because they fill at favorable prices, but those fills may happen right before
 the market moves against the trade.
 
+Fill model assumptions can be tuned from the CLI:
+
+```bash
+python3 main.py \
+  --execution-grid-sample \
+  --input-csv data/processed/SPY_5d_5m.csv \
+  --fill-model queue_weighted_touch \
+  --fill-capacity-multiplier passive_limit=0.15 \
+  --fill-queue-priority passive_limit=0.20
+```
+
+Available config flags:
+
+```text
+--fill-capacity-multiplier STYLE=VALUE
+--fill-queue-priority STYLE=VALUE
+--default-fill-capacity-multiplier VALUE
+--default-fill-queue-priority VALUE
+```
+
+`STYLE` is one of the placement styles, such as `passive_limit`,
+`aggressive_limit`, `midpoint_limit`, `primary_peg`, or `midpoint_peg`.
+Capacity multipliers control how much bar volume is available after the parent
+order participation cap. Queue priorities control the probability proxy used by
+`queue_weighted_touch` and `stochastic_queue_touch`. Queue priorities must be
+between `0` and `1`; capacity multipliers must be non-negative.
+
 ### Monte Carlo Execution Summaries
 
 Use Monte Carlo summaries when you want to understand how sensitive the

@@ -10,6 +10,7 @@ import pandas as pd
 from src.backtester import Backtester
 from src.execution import ParentOrder, generate_parent_orders
 from src.features import add_microstructure_features
+from src.fill_simulator import DEFAULT_FILL_CONFIG, DEFAULT_FILL_MODEL, FillModelConfig
 from src.rl_env import ExecutionEnv, RL_STRATEGY_NAME
 from src.tca import compute_tca_metrics
 
@@ -17,7 +18,8 @@ from src.tca import compute_tca_metrics
 def run_rl_backtest(
     input_csv: str | Path,
     policy: Any,
-    fill_model: str = "volume_capped_touch",
+    fill_model: str = DEFAULT_FILL_MODEL,
+    fill_config: FillModelConfig | None = None,
     max_orders_per_ticker: int | None = 1,
     include_baselines: bool = True,
 ) -> pd.DataFrame:
@@ -27,6 +29,7 @@ def run_rl_backtest(
         data=data,
         policy=policy,
         fill_model=fill_model,
+        fill_config=fill_config,
         max_orders_per_ticker=max_orders_per_ticker,
         include_baselines=include_baselines,
     )
@@ -35,11 +38,13 @@ def run_rl_backtest(
 def run_rl_backtest_data(
     data: pd.DataFrame,
     policy: Any,
-    fill_model: str = "volume_capped_touch",
+    fill_model: str = DEFAULT_FILL_MODEL,
+    fill_config: FillModelConfig | None = None,
     max_orders_per_ticker: int | None = 1,
     include_baselines: bool = True,
 ) -> pd.DataFrame:
     """Run baselines and an RL policy on an in-memory market DataFrame."""
+    fill_config = fill_config or DEFAULT_FILL_CONFIG
     featured = add_microstructure_features(data)
     parent_orders = generate_parent_orders(
         featured,
@@ -52,6 +57,7 @@ def run_rl_backtest_data(
     if include_baselines:
         baseline = Backtester(
             tickers=sorted(featured["ticker"].unique()),
+            fill_config=fill_config,
             max_orders_per_ticker=max_orders_per_ticker,
         )
         result_parts.append(baseline.run_single_ticker_data(featured))
@@ -63,6 +69,7 @@ def run_rl_backtest_data(
             market_data=featured,
             strategies={},
             fill_model=fill_model,
+            fill_config=fill_config,
         )
         state = env.reset()
         done = False
@@ -86,10 +93,12 @@ def run_rl_backtest_data(
 def run_rl_policy_on_data(
     data: pd.DataFrame,
     policy: Any,
-    fill_model: str = "volume_capped_touch",
+    fill_model: str = DEFAULT_FILL_MODEL,
+    fill_config: FillModelConfig | None = None,
     max_orders_per_ticker: int | None = 1,
 ) -> pd.DataFrame:
     """Run only the RL policy on an in-memory market DataFrame."""
+    fill_config = fill_config or DEFAULT_FILL_CONFIG
     featured = add_microstructure_features(data) if "spread_proxy" not in data.columns else data
     parent_orders = generate_parent_orders(
         featured,
@@ -97,7 +106,13 @@ def run_rl_policy_on_data(
     )
     rows = []
     for order in parent_orders:
-        env = ExecutionEnv(order, featured, strategies={}, fill_model=fill_model)
+        env = ExecutionEnv(
+            order,
+            featured,
+            strategies={},
+            fill_model=fill_model,
+            fill_config=fill_config,
+        )
         state = env.reset()
         done = False
         while not done:

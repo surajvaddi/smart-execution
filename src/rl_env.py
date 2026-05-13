@@ -15,7 +15,7 @@ import pandas as pd
 
 from src.execution import ParentOrder, filter_execution_window
 from src.features import estimate_volume_curve
-from src.fill_simulator import DEFAULT_FILL_MODEL, place_and_simulate_fills
+from src.fill_simulator import DEFAULT_FILL_CONFIG, DEFAULT_FILL_MODEL, FillModelConfig, place_and_simulate_fills
 
 
 RL_STRATEGY_NAME = "RLAdaptiveEnsemble"
@@ -66,6 +66,7 @@ class ExecutionEnv:
         market_data: pd.DataFrame,
         strategies: dict[str, Any] | None = None,
         fill_model: str | None = None,
+        fill_config: FillModelConfig | None = None,
         reward_config: RewardConfig | None = None,
     ) -> None:
         """Create one RL execution episode."""
@@ -73,6 +74,7 @@ class ExecutionEnv:
         self.market_data = market_data
         self.strategies = strategies or {}
         self.fill_model = fill_model or DEFAULT_FILL_MODEL
+        self.fill_config = fill_config or DEFAULT_FILL_CONFIG
         self.reward_config = reward_config or RewardConfig()
 
         ticker_data = market_data[market_data["ticker"] == order.ticker]
@@ -186,6 +188,7 @@ class ExecutionEnv:
             placement_style=placement_style,
             parent_order=self.order,
             fill_model=self.fill_model,
+            fill_config=self.fill_config,
         )
 
         filled_quantity = min(float(fills["quantity"].sum()), self.remaining_quantity)
