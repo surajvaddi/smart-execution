@@ -108,8 +108,13 @@ Implemented RL research layer:
 ```text
 .
 ├── main.py
+├── pyproject.toml
+├── Makefile
 ├── requirements.txt
 ├── CODEX_LOG.md
+├── frontend/
+│   ├── src/
+│   └── package.json
 ├── docs/
 │   └── limit_order_fill_simulator_plan.md
 ├── data/
@@ -130,6 +135,8 @@ Implemented RL research layer:
     ├── rl_backtester.py
     ├── tca.py
     ├── backtester.py
+    ├── services.py
+    ├── api.py
     └── plots.py
 ```
 
@@ -141,6 +148,18 @@ python3 -m pip install -r requirements.txt
 
 The project has been developed against Python 3.8 in this local environment. `requirements.txt` includes a Python 3.8-compatible `multitasking` pin required by `yfinance`.
 
+Common development commands:
+
+```bash
+make test
+make api
+make install-frontend
+make frontend
+make frontend-build
+```
+
+Generated raw data, processed data, report outputs, frontend build output, and model artifacts are ignored for future runs. The committed `reports/` files are retained as sample outputs for reference.
+
 ## Web App
 
 The project now includes a FastAPI backend and React/Vite frontend for interactive inspection of saved processed CSVs.
@@ -149,6 +168,12 @@ Run the API from the repository root:
 
 ```bash
 uvicorn src.api:app --reload --host 127.0.0.1 --port 8000
+```
+
+In this Python 3.8 environment, use the Makefile command if uvicorn attempts to use uvloop:
+
+```bash
+make api
 ```
 
 Run the frontend in a second terminal:
@@ -874,6 +899,15 @@ reports/execution_grid_summary_by_strategy_placement.csv
 - saves detailed results and strategy summaries
 - runs execution grids across strategies and placement styles
 
+### Service And API Layer
+
+`src/services.py`, `src/api.py`
+
+- exposes callable backend functions for the CLI, API, and frontend
+- loads and filters processed CSVs
+- runs backtests, execution grids, signal research, RL backtests, and Monte Carlo grids
+- serializes result tables for the FastAPI dashboard API
+
 ### RL Research Layer
 
 `src/rl_env.py`, `src/rl_policy.py`, `src/rl_train.py`, `src/rl_backtester.py`
@@ -891,7 +925,6 @@ reports/execution_grid_summary_by_strategy_placement.csv
 - Impact parameters are not calibrated to real market impact data.
 - Fill simulation is bar-based; queue and stochastic models are proxies, not true order-book queue position.
 - Current CLI sample backtest runs a limited local SPY sample by default.
-- Final report generation is not yet implemented.
 - Frontend currently targets saved processed CSVs; upload and long-running job management are future work.
 
 ## Roadmap
@@ -899,10 +932,9 @@ reports/execution_grid_summary_by_strategy_placement.csv
 Planned next phases:
 
 ```text
-Phase 9: Required plots
+Phase 9: Dashboard upload and async job management
 Phase 10: Experiments and robustness tests
-Phase 11: Final report
-Optional: richer dashboard workflows and upload/job management
+Phase 11: Final report workflow
 ```
 
 Useful future extensions:

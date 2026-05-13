@@ -6,6 +6,8 @@ venv/
 
 data/raw/*.csv
 data/processed/*.csv
+reports/*.csv
+reports/*.md
 reports/figures/*
 !reports/figures/.gitkeep
 

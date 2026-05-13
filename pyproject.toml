@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smart-execution"
+version = "0.1.0"
+description = "Smart order execution research backtester and dashboard."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "yfinance",
+    "multitasking<0.0.12",
+    "pandas",
+    "numexpr>=2.7.3",
+    "numpy",
+    "matplotlib",
+    "scikit-learn",
+    "statsmodels",
+    "fastapi==0.68.2",
+    "uvicorn==0.13.4",
+    "websockets>=13.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+smart-execution = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
