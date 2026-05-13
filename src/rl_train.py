@@ -6,14 +6,14 @@ from collections import defaultdict
 from pathlib import Path
 import pickle
 import random
-from typing import Iterable
+from typing import Dict, Iterable, Tuple
 
 import pandas as pd
 
 from src.rl_env import ACTION_SPACE, ExecutionEnv
 
 
-QTable = dict[tuple, dict[int, float]]
+QTable = Dict[Tuple, Dict[int, float]]
 
 
 def bucket_state(state: pd.Series) -> tuple:

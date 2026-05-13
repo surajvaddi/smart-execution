@@ -486,6 +486,33 @@ This is a research simulator, not production execution logic. It uses OHLCV
 proxy features, synthetic bid/ask prices, and modeled fills rather than real
 order book queue state.
 
+Run a sample RL backtest:
+
+```bash
+python3 main.py \
+  --rl-backtest-sample \
+  --input-csv data/processed/SPY_5d_5m.csv \
+  --rl-policy heuristic \
+  --max-orders-per-ticker 1
+```
+
+Outputs:
+
+```text
+reports/rl_backtest_results_SPY_5d_5m.csv
+```
+
+Available RL policies:
+
+```text
+heuristic
+random
+qtable
+```
+
+Use `--q-table-path artifacts/models/q_policy.pkl` with `--rl-policy qtable`
+after training a Q-table.
+
 ### Narrow The Date Or Time Range
 
 Most commands that read `--input-csv` also accept optional inclusive filters:

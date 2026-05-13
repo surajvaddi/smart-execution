@@ -17,6 +17,9 @@ from src.data_loader import load_and_save_intraday_data
 from src.features import add_microstructure_features, estimate_volume_curve
 from src.fill_simulator import DEFAULT_FILL_MODEL, DEFAULT_RANDOM_SEED, PLACEMENT_STYLES, VALID_FILL_MODELS
 from src.execution import generate_parent_orders, parent_orders_to_frame, parse_time
+from src.rl_backtester import run_rl_backtest_data
+from src.rl_policy import HeuristicExecutionPolicy, QTablePolicy, RandomPolicy
+from src.rl_train import load_q_table
 from src.signals import (
     DEFAULT_HORIZONS,
     add_forward_returns,
@@ -127,6 +130,22 @@ def parse_args() -> argparse.Namespace:
         "--execution-grid-multi",
         action="store_true",
         help="Run independent execution grids for multiple processed CSVs.",
+    )
+    parser.add_argument(
+        "--rl-backtest-sample",
+        action="store_true",
+        help="Run a sample Adaptive Ensemble RL backtest.",
+    )
+    parser.add_argument(
+        "--rl-policy",
+        choices=["heuristic", "random", "qtable"],
+        default="heuristic",
+        help="Policy to use with --rl-backtest-sample.",
+    )
+    parser.add_argument(
+        "--q-table-path",
+        default="artifacts/models/q_policy.pkl",
+        help="Q-table path for --rl-policy qtable.",
     )
     parser.add_argument(
         "--placement-styles",
@@ -256,6 +275,11 @@ def parse_args() -> argparse.Namespace:
         "--execution-grid-summary-strategy-placement-output-csv",
         default=None,
         help="Optional CSV path for execution-grid strategy-placement summary.",
+    )
+    parser.add_argument(
+        "--rl-backtest-output-csv",
+        default=None,
+        help="Optional CSV path for --rl-backtest-sample results.",
     )
     parser.add_argument(
         "--input-csv",
@@ -545,6 +569,20 @@ def _default_execution_grid_summary_placement_output_path() -> Path:
 def _default_execution_grid_summary_strategy_placement_output_path() -> Path:
     """Create a stable default report path for execution-grid strategy-placement summary."""
     return Path("reports") / "execution_grid_summary_by_strategy_placement.csv"
+
+
+def _default_rl_backtest_output_path(input_path: Path) -> Path:
+    """Create a stable default report path for RL backtest results."""
+    return Path("reports") / f"rl_backtest_results_{input_path.stem}.csv"
+
+
+def _rl_policy_from_args(args: argparse.Namespace):
+    """Create the requested RL policy object from CLI arguments."""
+    if args.rl_policy == "random":
+        return RandomPolicy(seed=args.random_seed)
+    if args.rl_policy == "qtable":
+        return QTablePolicy(load_q_table(args.q_table_path))
+    return HeuristicExecutionPolicy()
 
 
 def _write_signal_notes(
@@ -1289,6 +1327,39 @@ def main() -> None:
         print(f"Saved placement summary to {placement_path}.")
         print(f"Saved strategy-placement summary to {strategy_placement_path}.")
         print(summary_by_strategy_placement.to_string(index=False))
+    elif args.rl_backtest_sample:
+        # Adaptive Ensemble RL path: compare the selected RL policy against the
+        # standard baseline strategies on the same generated parent orders.
+        input_path, data = _load_processed_csv_from_args(args)
+        policy = _rl_policy_from_args(args)
+        results = run_rl_backtest_data(
+            data=data,
+            policy=policy,
+            fill_model=args.fill_model,
+            max_orders_per_ticker=args.max_orders_per_ticker,
+            include_baselines=True,
+        )
+        output_path = (
+            Path(args.rl_backtest_output_csv)
+            if args.rl_backtest_output_csv
+            else _default_rl_backtest_output_path(input_path)
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        results.to_csv(output_path, index=False)
+
+        print(f"Ran RL backtest from {input_path}.")
+        print(f"RL policy: {args.rl_policy}.")
+        print(f"Fill model: {args.fill_model}.")
+        print(f"Result rows: {len(results):,}.")
+        print(f"Saved RL backtest results to {output_path}.")
+        display_cols = [
+            "strategy",
+            "fill_rate",
+            "implementation_shortfall_bps",
+            "vwap_slippage_bps",
+            "opportunity_cost_bps",
+        ]
+        print(results[display_cols].to_string(index=False))
     else:
         print("Phase 1 data loader is available. Use --download-sample to fetch a ticker.")
         print("Phase 2 feature engineering is available. Use --feature-sample to test a CSV.")
@@ -1307,6 +1378,7 @@ def main() -> None:
         print("Multi-ticker download is available. Use --download-tickers SPY QQQ ...")
         print("Multi-ticker execution tape is available. Use --execution-tape --input-csvs ...")
         print("Execution-grid simulation is available. Use --execution-grid-sample.")
+        print("Adaptive Ensemble RL backtest is available. Use --rl-backtest-sample.")
 
 
 if __name__ == "__main__":

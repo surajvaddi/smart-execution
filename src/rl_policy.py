@@ -8,6 +8,7 @@ from typing import Iterable
 import pandas as pd
 
 from src.rl_env import ACTION_SPACE
+from src.rl_train import bucket_state
 
 
 class RandomPolicy:
@@ -66,3 +67,21 @@ class HeuristicExecutionPolicy:
             if action in valid_actions:
                 return action
         return min(valid_actions)
+
+
+class QTablePolicy:
+    """Greedy policy backed by a learned tabular Q-table."""
+
+    def __init__(self, q_table: dict[tuple, dict[int, float]]) -> None:
+        """Create a policy from a saved Q-table."""
+        self.q_table = q_table
+
+    def select_action(self, state: pd.Series, valid_actions: Iterable[int] | None = None) -> int:
+        """Return the highest-value valid action for the state bucket."""
+        actions = list(valid_actions) if valid_actions is not None else ACTION_SPACE
+        if not actions:
+            raise ValueError("valid_actions cannot be empty.")
+
+        state_bucket = bucket_state(state)
+        action_values = self.q_table.get(state_bucket, {})
+        return max(actions, key=lambda action: action_values.get(action, 0.0))

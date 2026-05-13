@@ -255,3 +255,10 @@ Comments:
 - Added `src/rl_backtester.py` to run an RL policy through parent orders and return comparable TCA rows with `strategy = RLAdaptiveEnsemble`.
 - Added pytest coverage for RL environment stepping, caps, terminal behavior, finite rewards, no-lookahead schema, heuristic policy decisions, and RL TCA result columns.
 - Added `pytest` to `requirements.txt` because the RL tests use pytest directly.
+
+### RL CLI
+
+- Added `main.py --rl-backtest-sample` to run an Adaptive Ensemble RL sample backtest from a processed CSV.
+- Added `--rl-policy heuristic|random|qtable`, `--q-table-path`, and `--rl-backtest-output-csv`.
+- Added `QTablePolicy` so saved Q-tables can be used by the CLI once training output exists.
+- Verified the heuristic RL CLI path against the saved SPY sample.

@@ -23,6 +23,23 @@ def run_rl_backtest(
 ) -> pd.DataFrame:
     """Run baselines and an RL policy on the same generated parent orders."""
     data = pd.read_csv(input_csv, index_col=0, parse_dates=True)
+    return run_rl_backtest_data(
+        data=data,
+        policy=policy,
+        fill_model=fill_model,
+        max_orders_per_ticker=max_orders_per_ticker,
+        include_baselines=include_baselines,
+    )
+
+
+def run_rl_backtest_data(
+    data: pd.DataFrame,
+    policy: Any,
+    fill_model: str = "volume_capped_touch",
+    max_orders_per_ticker: int | None = 1,
+    include_baselines: bool = True,
+) -> pd.DataFrame:
+    """Run baselines and an RL policy on an in-memory market DataFrame."""
     featured = add_microstructure_features(data)
     parent_orders = generate_parent_orders(
         featured,
