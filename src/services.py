@@ -37,7 +37,7 @@ from src.signals import (
     signal_decay_table,
     signal_quality_summary,
 )
-from src.strategies import ExecutionStrategy
+from src.strategies import AdaptiveModelWeights, AdaptiveStrategy, ExecutionStrategy
 
 
 @dataclass(frozen=True)
@@ -161,6 +161,7 @@ def run_backtest(
     data: pd.DataFrame,
     tickers: list[str] | None = None,
     strategies: list[ExecutionStrategy] | None = None,
+    adaptive_weights: dict[str, float] | None = None,
     max_orders_per_ticker: int | None = 20,
 ) -> pd.DataFrame:
     """Run the default strategy backtest on in-memory market data."""
@@ -169,6 +170,7 @@ def run_backtest(
         featured,
         tickers=tickers,
         strategies=strategies,
+        adaptive_weights=adaptive_weights,
         max_orders_per_ticker=max_orders_per_ticker,
     )
     return backtester.run_single_ticker_data(featured)
@@ -178,17 +180,19 @@ def run_backtest_csv(
     input_csv: str | Path,
     tickers: list[str] | None = None,
     strategies: list[ExecutionStrategy] | None = None,
+    adaptive_weights: dict[str, float] | None = None,
     max_orders_per_ticker: int | None = 20,
 ) -> pd.DataFrame:
     """Run the default strategy backtest from a processed CSV."""
     data = load_processed_data(input_csv)
-    return run_backtest(data, tickers, strategies, max_orders_per_ticker)
+    return run_backtest(data, tickers, strategies, adaptive_weights, max_orders_per_ticker)
 
 
 def run_execution_grid(
     data: pd.DataFrame,
     tickers: list[str] | None = None,
     strategies: list[ExecutionStrategy] | None = None,
+    adaptive_weights: dict[str, float] | None = None,
     placement_styles: list[str] | None = None,
     fill_model: str = DEFAULT_FILL_MODEL,
     fill_config: FillModelConfig | None = None,
@@ -201,6 +205,7 @@ def run_execution_grid(
         featured,
         tickers=tickers,
         strategies=strategies,
+        adaptive_weights=adaptive_weights,
         placement_styles=placement_styles,
         fill_model=fill_model,
         fill_config=fill_config,
@@ -215,6 +220,7 @@ def run_monte_carlo_grid(
     data: pd.DataFrame,
     seeds: list[int],
     placement_styles: list[str] | None = None,
+    adaptive_weights: dict[str, float] | None = None,
     fill_model: str | None = None,
     fill_config: FillModelConfig | None = None,
     max_orders_per_ticker: int | None = 1,
@@ -281,10 +287,62 @@ def generate_plots(
     )
 
 
+def preview_execution_fills(
+    fills: pd.DataFrame,
+    limit: int = 500,
+) -> pd.DataFrame:
+    """Return a balanced preview of fills across strategy and placement groups."""
+    if fills.empty or limit <= 0:
+        return fills.head(0).copy()
+
+    required = ["strategy", "placement_style"]
+    missing = [col for col in required if col not in fills.columns]
+    if missing:
+        raise ValueError(f"Missing required fill preview columns: {missing}")
+
+    ordered = fills.sort_values(["strategy", "placement_style", "timestamp"]).reset_index(drop=True)
+    groups = list(ordered.groupby(["strategy", "placement_style"], sort=True, dropna=False))
+    if not groups:
+        return ordered.head(0)
+
+    if limit >= len(ordered):
+        return ordered
+
+    allocation = max(1, limit // len(groups))
+    leftovers = limit
+    pieces = []
+    used_index = set()
+
+    for idx, ((strategy, placement), group) in enumerate(groups):
+        if leftovers <= 0:
+            break
+        remaining_groups = len(groups) - idx
+        take = min(
+            len(group),
+            max(1, leftovers // remaining_groups),
+            allocation,
+        )
+        if take <= 0:
+            take = 1
+        part = group.head(take)
+        pieces.append(part)
+        used_index.update(part.index.tolist())
+        leftovers -= len(part)
+
+    if leftovers > 0:
+        remaining = ordered.loc[~ordered.index.isin(used_index)]
+        if not remaining.empty:
+            pieces.append(remaining.head(leftovers))
+
+    preview = pd.concat(pieces, ignore_index=True) if pieces else ordered.head(0)
+    return preview.head(limit)
+
+
 def _backtester_for_data(
     data: pd.DataFrame,
     tickers: list[str] | None = None,
     strategies: list[ExecutionStrategy] | None = None,
+    adaptive_weights: dict[str, float] | None = None,
     placement_styles: list[str] | None = None,
     fill_model: str = DEFAULT_FILL_MODEL,
     fill_config: FillModelConfig | None = None,
@@ -293,9 +351,18 @@ def _backtester_for_data(
 ) -> Backtester:
     """Build a Backtester with defaults inferred from the input data."""
     resolved_tickers = tickers or sorted(data["ticker"].unique().tolist())
+    resolved_strategies = strategies or default_strategies()
+    if adaptive_weights is not None:
+        adapted = []
+        for strategy in resolved_strategies:
+            if isinstance(strategy, AdaptiveStrategy):
+                adapted.append(AdaptiveStrategy(AdaptiveModelWeights(**adaptive_weights)))
+            else:
+                adapted.append(strategy)
+        resolved_strategies = adapted
     return Backtester(
         tickers=resolved_tickers,
-        strategies=strategies or default_strategies(),
+        strategies=resolved_strategies,
         placement_styles=placement_styles or PLACEMENT_STYLES.copy(),
         fill_model=fill_model,
         fill_config=fill_config or FillModelConfig(),

@@ -48,12 +48,30 @@ type GridResponse = {
 
 const API_BASE = "";
 const PLACEMENTS = ["market", "marketable_limit", "aggressive_limit", "midpoint_limit", "passive_limit", "adaptive_limit"];
+const DEFAULT_ADAPTIVE_WEIGHTS = {
+  bullish_signal_multiplier: 1.4,
+  bearish_signal_multiplier: 0.7,
+  spread_penalty_multiplier: 0.75,
+  volatility_penalty_multiplier: 0.85,
+  liquidity_boost_multiplier: 1.2,
+  urgency_weight: 1.0
+};
+
+const ADAPTIVE_FIELDS = [
+  { key: "bullish_signal_multiplier", label: "Bullish signal", step: 0.05, min: 0.1, max: 3 },
+  { key: "bearish_signal_multiplier", label: "Bearish signal", step: 0.05, min: 0.1, max: 3 },
+  { key: "spread_penalty_multiplier", label: "Spread penalty", step: 0.05, min: 0.1, max: 3 },
+  { key: "volatility_penalty_multiplier", label: "Volatility penalty", step: 0.05, min: 0.1, max: 3 },
+  { key: "liquidity_boost_multiplier", label: "Liquidity boost", step: 0.05, min: 0.1, max: 3 },
+  { key: "urgency_weight", label: "Urgency weight", step: 0.05, min: 0, max: 5 }
+] as const;
 
 function App() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [datasetPath, setDatasetPath] = useState("");
   const [maxOrders, setMaxOrders] = useState(1);
   const [placements, setPlacements] = useState<string[]>(["market", "passive_limit", "adaptive_limit"]);
+  const [adaptiveWeights, setAdaptiveWeights] = useState(DEFAULT_ADAPTIVE_WEIGHTS);
   const [backtest, setBacktest] = useState<BacktestResponse | null>(null);
   const [grid, setGrid] = useState<GridResponse | null>(null);
   const [tapeStrategy, setTapeStrategy] = useState("all");
@@ -91,7 +109,8 @@ function App() {
     try {
       const response = await postJson<BacktestResponse>("/api/backtest", {
         input_csv: datasetPath,
-        max_orders_per_ticker: maxOrders
+        max_orders_per_ticker: maxOrders,
+        adaptive_weights: adaptiveWeights
       });
       setBacktest(response);
     } catch (err) {
@@ -114,6 +133,7 @@ function App() {
         input_csv: datasetPath,
         max_orders_per_ticker: maxOrders,
         placement_styles: placements,
+        adaptive_weights: adaptiveWeights,
         fill_row_limit: 400
       });
       setGrid(response);
@@ -193,6 +213,36 @@ function App() {
               </label>
             ))}
           </div>
+        </section>
+
+        <section className="panel">
+          <div className="panelHeader">
+            <BarChart3 size={16} />
+            <span>Adaptive Weights</span>
+          </div>
+          <div className="weightGrid">
+            {ADAPTIVE_FIELDS.map((field) => (
+              <label className="weightField" key={field.key}>
+                <span>{field.label}</span>
+                <input
+                  min={field.min}
+                  max={field.max}
+                  step={field.step}
+                  type="number"
+                  value={adaptiveWeights[field.key]}
+                  onChange={(event) =>
+                    setAdaptiveWeights({
+                      ...adaptiveWeights,
+                      [field.key]: Number(event.target.value)
+                    })
+                  }
+                />
+              </label>
+            ))}
+          </div>
+          <button className="iconButton wide" onClick={() => setAdaptiveWeights(DEFAULT_ADAPTIVE_WEIGHTS)} type="button">
+            Reset
+          </button>
         </section>
 
         <div className="actions">

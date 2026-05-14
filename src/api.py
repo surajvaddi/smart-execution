@@ -14,6 +14,7 @@ from src.backtester import Backtester
 from src.fill_simulator import DEFAULT_FILL_MODEL, DEFAULT_RANDOM_SEED, PLACEMENT_STYLES
 from src.services import (
     load_processed_data,
+    preview_execution_fills,
     run_backtest,
     run_execution_grid,
     run_signal_research,
@@ -33,6 +34,7 @@ class DataRequest(BaseModel):
     end_date: Optional[str] = None
     start_time: Optional[str] = None
     end_time: Optional[str] = None
+    adaptive_weights: Optional[Dict[str, float]] = None
 
 
 class ExecutionGridRequest(DataRequest):
@@ -91,6 +93,7 @@ def create_app() -> FastAPI:
         data = _load_request_data(request)
         results = run_backtest(
             data,
+            adaptive_weights=request.adaptive_weights,
             max_orders_per_ticker=request.max_orders_per_ticker,
         )
         summary = Backtester(
@@ -110,6 +113,7 @@ def create_app() -> FastAPI:
         grid = run_execution_grid(
             data,
             placement_styles=request.placement_styles,
+            adaptive_weights=request.adaptive_weights,
             fill_model=request.fill_model,
             random_seed=request.random_seed,
             max_orders_per_ticker=request.max_orders_per_ticker,
@@ -121,7 +125,7 @@ def create_app() -> FastAPI:
         strategy_summary = backtester.summarize_by_strategy(grid.results)
         placement_summary = backtester.summarize_by_placement(grid.results)
         strategy_placement_summary = backtester.summarize_by_strategy_placement(grid.results)
-        fills = grid.fills.head(request.fill_row_limit)
+        fills = preview_execution_fills(grid.fills, request.fill_row_limit)
         return {
             "results": _frame_records(grid.results),
             "fills": _frame_records(fills),

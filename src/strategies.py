@@ -6,6 +6,8 @@ with shared helpers so TWAP, VWAP, POV, and Adaptive all emit the same schema.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pandas as pd
 
 from src.execution import ParentOrder, filter_execution_window
@@ -85,6 +87,20 @@ class ExecutionStrategy:
         # Concrete strategies will return one row per child order with timestamp,
         # ticker, side, strategy, quantity, and reference price.
         raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class AdaptiveModelWeights:
+    """User-tunable multipliers for the adaptive execution heuristic."""
+
+    bullish_signal_multiplier: float = 1.4
+    bearish_signal_multiplier: float = 0.7
+    spread_penalty_multiplier: float = 0.75
+    volatility_penalty_multiplier: float = 0.85
+    liquidity_boost_multiplier: float = 1.2
+    urgency_weight: float = 1.0
+    min_multiplier: float = 0.25
+    max_multiplier: float = 2.5
 
 
 class TWAPStrategy(ExecutionStrategy):
@@ -201,12 +217,17 @@ class AdaptiveStrategy(ExecutionStrategy):
     # Adjusts speed using alpha, liquidity, spread, volatility, and urgency.
     name = "Adaptive"
 
+    def __init__(self, weights: AdaptiveModelWeights | None = None) -> None:
+        """Create an adaptive strategy with tunable execution weights."""
+        self.weights = weights or AdaptiveModelWeights()
+
     def adaptive_multiplier(self, row: pd.Series, side: str, urgency: float) -> float:
         """Return an execution speed multiplier from signals and conditions."""
         signal = row.get("alpha_signal", 0.0)
         spread = row.get("spread_proxy", 0.0)
         volatility = row.get("rolling_vol", 0.0)
         liquidity = row.get("liquidity_score", 0.0)
+        weights = self.weights
 
         multiplier = 1.0
 
@@ -215,29 +236,29 @@ class AdaptiveStrategy(ExecutionStrategy):
         # sell faster before price falls.
         if side == "buy":
             if signal > 0:
-                multiplier *= 1.4
+                multiplier *= weights.bullish_signal_multiplier
             elif signal < 0:
-                multiplier *= 0.7
+                multiplier *= weights.bearish_signal_multiplier
         elif side == "sell":
             if signal < 0:
-                multiplier *= 1.4
+                multiplier *= weights.bullish_signal_multiplier
             elif signal > 0:
-                multiplier *= 0.7
+                multiplier *= weights.bearish_signal_multiplier
 
         # High spread and high volatility make trading more expensive or risky,
         # so slow down unless urgency later pushes the multiplier back up.
         if spread > row.get("spread_proxy_75pct", float("inf")):
-            multiplier *= 0.75
+            multiplier *= weights.spread_penalty_multiplier
         if volatility > row.get("rolling_vol_75pct", float("inf")):
-            multiplier *= 0.85
+            multiplier *= weights.volatility_penalty_multiplier
 
         # High liquidity is the condition where taking more quantity is least
         # likely to create avoidable impact.
         if liquidity > row.get("liquidity_score_75pct", float("inf")):
-            multiplier *= 1.2
+            multiplier *= weights.liquidity_boost_multiplier
 
-        multiplier *= urgency
-        return float(max(0.25, min(2.5, multiplier)))
+        multiplier *= 1.0 + max(0.0, urgency - 1.0) * weights.urgency_weight
+        return float(max(weights.min_multiplier, min(weights.max_multiplier, multiplier)))
 
     def generate_child_orders(self, order: ParentOrder, data: pd.DataFrame) -> pd.DataFrame:
         """Generate an adaptive schedule using signals, liquidity, and urgency."""

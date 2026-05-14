@@ -6,10 +6,12 @@ import pytest
 
 from src.backtester import Backtester
 from src.rl_env import RL_STRATEGY_NAME
+from src.strategies import AdaptiveModelWeights, AdaptiveStrategy
 from src.services import (
     filter_market_data,
     load_processed_data,
     parent_orders,
+    preview_execution_fills,
     prepare_features,
     run_backtest,
     run_execution_grid,
@@ -76,6 +78,19 @@ def test_execution_grid_service_returns_results_and_fills() -> None:
     assert {"submitted_quantity", "filled_quantity", "fill_status"}.issubset(grid.fills.columns)
 
 
+def test_preview_execution_fills_spreads_rows_across_strategies() -> None:
+    grid = run_execution_grid(
+        sample_market_data(),
+        placement_styles=["market", "passive_limit"],
+        max_orders_per_ticker=1,
+    )
+
+    preview = preview_execution_fills(grid.fills, limit=8)
+
+    assert len(preview) == 8
+    assert set(preview["strategy"]) >= {"TWAP", "VWAP", "POV", "Adaptive"}
+
+
 def test_monte_carlo_service_returns_summary() -> None:
     result = run_monte_carlo_grid(
         sample_market_data(),
@@ -117,3 +132,24 @@ def test_backtester_run_requires_exactly_one_input() -> None:
         backtester.run()
     with pytest.raises(ValueError, match="exactly one"):
         backtester.run(data=sample_market_data(), input_csv="unused.csv")
+
+
+def test_adaptive_weights_change_the_multiplier() -> None:
+    row = sample_market_data().iloc[1].copy()
+    row["spread_proxy_75pct"] = 0.0
+    row["rolling_vol_75pct"] = 0.0
+    row["liquidity_score_75pct"] = 0.0
+
+    default = AdaptiveStrategy().adaptive_multiplier(row, "buy", 1.0)
+    tuned = AdaptiveStrategy(
+        AdaptiveModelWeights(
+            bullish_signal_multiplier=2.0,
+            bearish_signal_multiplier=0.5,
+            spread_penalty_multiplier=0.9,
+            volatility_penalty_multiplier=0.9,
+            liquidity_boost_multiplier=1.1,
+            urgency_weight=1.5,
+        )
+    ).adaptive_multiplier(row, "buy", 1.0)
+
+    assert tuned > default
