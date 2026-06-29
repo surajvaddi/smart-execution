@@ -1,4 +1,4 @@
-"""Characterization tests that pin current backtester strategy outputs."""
+"""Characterization tests for current backtester result shape and ordering."""
 
 from __future__ import annotations
 
@@ -8,25 +8,13 @@ from src.backtester import Backtester
 from test_rl_env import sample_market_data
 
 
-def test_backtester_keeps_current_strategy_shortfall_profile() -> None:
-    results = Backtester(tickers=["XYZ"], max_orders_per_ticker=1).run(sample_market_data())
-    profile = {
-        row["strategy"]: row["implementation_shortfall_bps"]
-        for row in results[["strategy", "implementation_shortfall_bps"]].to_dict("records")
-    }
+def test_single_ticker_backtest_returns_current_strategy_set() -> None:
+    backtester = Backtester(tickers=["XYZ"], max_orders_per_ticker=1)
 
-    assert profile == pytest.approx(
-        {
-            "TWAP": 186.5715934709,
-            "VWAP": 186.0892336320,
-            "POV": 298.9979919679,
-            "Adaptive": 194.7787481297,
-        }
+    results = backtester.run_single_ticker_data(sample_market_data())
+
+    assert results["strategy"].tolist() == ["TWAP", "VWAP", "POV", "Adaptive"]
+    assert results["implementation_shortfall_bps"].tolist() == pytest.approx(
+        [186.57159292430805, 186.08923387096752, 298.99799195977437, 194.77874805227628]
     )
-
-
-def test_backtester_keeps_current_full_fill_baseline_on_sample_data() -> None:
-    results = Backtester(tickers=["XYZ"], max_orders_per_ticker=1).run(sample_market_data())
-
-    assert set(results["strategy"]) == {"TWAP", "VWAP", "POV", "Adaptive"}
     assert results["fill_rate"].tolist() == pytest.approx([1.0, 1.0, 1.0, 1.0])
