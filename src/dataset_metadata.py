@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -62,7 +63,14 @@ def build_dataset_metadata(
 
 def validate_dataset_metadata(metadata: DatasetMetadata | dict[str, Any]) -> DatasetMetadata:
     """Validate metadata fields and return a normalized dataclass."""
-    normalized = metadata if isinstance(metadata, DatasetMetadata) else DatasetMetadata(**metadata)
+    if isinstance(metadata, DatasetMetadata):
+        normalized = metadata
+    else:
+        required = DatasetMetadata.__dataclass_fields__.keys()
+        missing = [field_name for field_name in required if field_name not in metadata]
+        if missing:
+            raise ValueError(f"Missing required dataset metadata fields: {missing}")
+        normalized = DatasetMetadata(**metadata)
 
     string_fields = [
         "dataset_name",
@@ -99,6 +107,77 @@ def attach_dataset_metadata(
     """Attach metadata fields to a DataFrame without mutating the input frame."""
     normalized = validate_dataset_metadata(metadata)
     attached = data.copy()
+    attached.attrs = dict(data.attrs)
+    attached.attrs["dataset_metadata"] = normalized.as_dict()
     for key, value in normalized.as_dict().items():
         attached[key] = value
     return attached
+
+
+def get_dataset_metadata(data: pd.DataFrame) -> dict[str, Any] | None:
+    """Return metadata from attrs or constant metadata columns when present."""
+    from_attrs = data.attrs.get("dataset_metadata")
+    if from_attrs is not None:
+        return validate_dataset_metadata(from_attrs).as_dict()
+
+    metadata_fields = DatasetMetadata.__dataclass_fields__.keys()
+    if not set(metadata_fields).issubset(data.columns):
+        return None
+
+    if data.empty:
+        return None
+
+    record = {field_name: data[field_name].iloc[0] for field_name in metadata_fields}
+    return validate_dataset_metadata(record).as_dict()
+
+
+def infer_dataset_metadata(
+    data: pd.DataFrame,
+    source_name: str | Path,
+    instrument_type: str = "equity",
+    data_basis: str = "proxy",
+) -> DatasetMetadata:
+    """Infer a baseline metadata record from a market-data frame."""
+    return build_dataset_metadata(
+        dataset_name=Path(source_name).name,
+        source_name=str(source_name),
+        frequency=_infer_frequency(data),
+        timezone=_infer_timezone(data),
+        instrument_type=instrument_type,
+        data_basis=data_basis,
+        contains_quotes=False,
+        contains_depth=False,
+        contains_order_events=False,
+        contains_trade_events=False,
+    )
+
+
+def _infer_frequency(data: pd.DataFrame) -> str:
+    """Infer a readable cadence label from a datetime index when possible."""
+    if not isinstance(data.index, pd.DatetimeIndex) or len(data.index) < 2:
+        return "unknown"
+
+    diffs = data.index.to_series().sort_values().diff().dropna()
+    if diffs.empty:
+        return "unknown"
+
+    mode = diffs.mode()
+    if mode.empty:
+        return "unknown"
+
+    delta = mode.iloc[0]
+    total_seconds = int(delta.total_seconds())
+    if total_seconds <= 0:
+        return "unknown"
+    if total_seconds % 3600 == 0:
+        return f"{total_seconds // 3600}h"
+    if total_seconds % 60 == 0:
+        return f"{total_seconds // 60}min"
+    return f"{total_seconds}s"
+
+
+def _infer_timezone(data: pd.DataFrame) -> str:
+    """Infer timezone string from a datetime index when possible."""
+    if isinstance(data.index, pd.DatetimeIndex) and data.index.tz is not None:
+        return str(data.index.tz)
+    return "unknown"

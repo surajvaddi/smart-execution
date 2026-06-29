@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from src.dataset_metadata import get_dataset_metadata
 from src.backtester import Backtester
 from src.rl_env import RL_STRATEGY_NAME
 from src.strategies import AdaptiveModelWeights, AdaptiveStrategy
@@ -38,6 +39,10 @@ def test_load_processed_data_applies_filters(tmp_path) -> None:
     assert len(data) == 3
     assert data.index.min().strftime("%H:%M") == "10:05"
     assert data.index.max().strftime("%H:%M") == "10:15"
+    metadata = get_dataset_metadata(data)
+    assert metadata is not None
+    assert metadata["data_basis"] == "proxy"
+    assert metadata["frequency"] == "5min"
 
 
 def test_filter_market_data_requires_paired_filters() -> None:

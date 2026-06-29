@@ -8,6 +8,8 @@ import tempfile
 
 os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "smart_execution_matplotlib"))
 os.environ.setdefault("XDG_CACHE_HOME", str(Path(tempfile.gettempdir()) / "smart_execution_cache"))
+Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
+Path(os.environ["XDG_CACHE_HOME"]).mkdir(parents=True, exist_ok=True)
 import matplotlib
 
 matplotlib.use("Agg")

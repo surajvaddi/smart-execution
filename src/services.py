@@ -13,6 +13,7 @@ from typing import Any
 import pandas as pd
 
 from src.backtester import Backtester, default_strategies
+from src.dataset_metadata import attach_dataset_metadata, infer_dataset_metadata
 from src.execution import generate_parent_orders, parent_orders_to_frame, parse_time
 from src.features import FEATURE_COLUMNS, add_microstructure_features, estimate_volume_curve
 from src.fill_simulator import (
@@ -75,7 +76,9 @@ def load_processed_data(
 ) -> pd.DataFrame:
     """Load a processed market-data CSV and apply optional date/time filters."""
     data = pd.read_csv(input_csv, index_col=0, parse_dates=True)
-    return filter_market_data(data, start_date, end_date, start_time, end_time)
+    filtered = filter_market_data(data, start_date, end_date, start_time, end_time)
+    metadata = infer_dataset_metadata(filtered, source_name=input_csv, data_basis="proxy")
+    return attach_dataset_metadata(filtered, metadata)
 
 
 def load_processed_datasets(

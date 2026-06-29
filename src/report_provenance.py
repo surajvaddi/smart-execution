@@ -42,8 +42,8 @@ def build_provenance_record(
     research_mode: str,
     data_basis: str,
     source_dataset: str,
-    model_name: str,
-    simulation_model: str,
+    model_name: str = "none",
+    simulation_model: str = "none",
     random_seed: int | None = None,
     config_id: str = "default",
     generated_at: str | None = None,
@@ -68,7 +68,14 @@ def validate_provenance_record(
     record: ReportProvenance | dict[str, Any],
 ) -> ReportProvenance:
     """Validate provenance fields and return a normalized record."""
-    normalized = record if isinstance(record, ReportProvenance) else ReportProvenance(**record)
+    if isinstance(record, ReportProvenance):
+        normalized = record
+    else:
+        required = ReportProvenance.__dataclass_fields__.keys()
+        missing = [field_name for field_name in required if field_name not in record]
+        if missing:
+            raise ValueError(f"Missing required provenance fields: {missing}")
+        normalized = ReportProvenance(**record)
 
     for field_name in [
         "research_mode",
