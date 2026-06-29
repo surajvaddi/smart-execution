@@ -43,6 +43,28 @@ This project therefore uses OHLCV-derived proxies:
 
 These are research approximations, not production execution models or real market microstructure measurements.
 
+## Architecture Direction
+
+The current repository is the bar-based baseline of a larger planned research stack.
+
+Today:
+
+- the repo supports OHLCV-based proxy execution research
+- the fill simulator is bar-based, not a true exchange-state simulator
+- queue-weighted and stochastic limit-fill models are still proxies
+
+Target direction:
+
+- preserve the current bar-based baseline as a fast research path
+- add a separate event-level synthetic limit order book stack
+- add instrument-aware futures and FX support
+- add a stronger predictive alpha modeling layer
+
+See:
+
+- `docs/research_execution_master_plan.md`
+- `docs/architecture/target_research_stack.md`
+
 ## Current Vs Target Architecture
 
 The repository currently supports a bar-based execution research stack and does not yet implement a true event-level limit order book simulator.

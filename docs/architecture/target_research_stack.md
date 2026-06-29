@@ -2,277 +2,402 @@
 
 ## Purpose
 
-This document defines the intended long-term architecture for `smart-execution`.
+This document defines the intended architecture for `smart-execution` as it grows from a bar-based execution research backtester into a broader execution research platform.
 
-It exists to remove ambiguity between:
+It exists to answer four practical questions:
 
-- what the repository already supports today
-- what is planned but not yet implemented
-- which modules belong to which research path
-- how future subsystems should connect without drifting into incompatible prototypes
+1. What is the current system?
+2. What future subsystems are planned?
+3. Where do module boundaries sit?
+4. How should new work connect to the existing codebase without creating drift?
 
-This is an architecture target, not a claim that every component already exists.
+This is a design contract, not a marketing document. If code and this document disagree, the discrepancy should be resolved explicitly instead of ignored.
 
 ## Current State
 
-Today the repository is primarily a bar-based smart execution backtester built on Yahoo Finance intraday OHLCV data.
+Today the repository is primarily a bar-based research system built around processed Yahoo Finance intraday OHLCV data.
 
-Current strengths:
+Current implemented layers:
 
-- deterministic data-cleaning pipeline
-- proxy microstructure feature generation
-- descriptive short-horizon signal research
-- parent-order simulation
-- schedule generation for TWAP, VWAP, POV, and adaptive execution
-- synthetic bid/ask and bar-based fill simulation
-- parent-order TCA metrics
-- execution grid and Monte Carlo comparisons
-- a lightweight RL execution layer
-- API and frontend inspection tools
+- data ingestion and cleaning
+- OHLCV-based proxy feature engineering
+- signal evaluation on forward returns
+- parent-order generation
+- schedule generation with TWAP, VWAP, POV, and adaptive heuristics
+- bar-based placement and fill simulation
+- TCA metrics and strategy summaries
+- a lightweight RL environment reusing the bar-based simulator
+- API and frontend inspection surfaces
 
-Current limitations:
+Current architectural truth:
 
-- no true order-book state
-- no explicit price-time priority engine
-- no event-level order arrivals or cancellations
-- no queue-position state
-- no futures-specific instrument layer
-- no out-of-sample predictive alpha lab
+- the project is a valid execution-research backtester on proxy data
+- the project is not yet a true order-book simulator
+- the project does not yet have a futures-first or FX-first instrument layer
+- the project does not yet have a mature predictive alpha modeling stack
 
-## Two Research Paths
+## Target End State
 
-The repository should evolve into two connected but clearly separated paths.
+The target system has two main research trunks that share common contracts.
 
-### Path A: Bar-Based Execution Research
+### Trunk A: Bar and Proxy Research
 
-Purpose:
+Use cases:
 
-- perform execution research on widely available intraday OHLCV data
-- estimate execution quality using microstructure-inspired proxies
-- compare scheduling and placement decisions under a synthetic cost model
+- fast execution backtests on saved processed CSVs
+- microstructure-inspired feature studies on OHLCV bars
+- signal-aware execution benchmarking
+- model-driven adaptive execution research on bar data
 
-Core truth:
+Primary qualities:
 
-- this path is proxy-based, not exchange-state-based
+- fast iteration
+- reproducible baseline results
+- honest proxy labeling
 
-Primary modules:
+### Trunk B: Event-Level Synthetic Microstructure Research
+
+Use cases:
+
+- event-driven order-book simulation
+- queue-aware execution tactics
+- latency-sensitive execution experiments
+- order-arrival and cancellation regime analysis
+- richer execution RL experiments
+
+Primary qualities:
+
+- explicit exchange state
+- price-time priority
+- event-level auditability
+- reproducible stochastic simulation
+
+## High-Level Architecture
+
+```text
+                    +----------------------+
+                    |   Instrument Specs   |
+                    |  equities/futures/FX |
+                    +----------+-----------+
+                               |
+                 +-------------+-------------+
+                 |                           |
+                 v                           v
+       +-------------------+       +----------------------+
+       |  Bar/Proxy Data   |       |  Event/LOB Simulator |
+       | Yahoo OHLCV CSVs  |       | state + event flow   |
+       +---------+---------+       +----------+-----------+
+                 |                            |
+                 v                            v
+       +-------------------+       +----------------------+
+       | Proxy Features    |       | Matching Engine      |
+       | Signals / Alpha   |       | Queue / Latency      |
+       +---------+---------+       +----------+-----------+
+                 |                            |
+                 v                            v
+       +-------------------+       +----------------------+
+       | Schedule Policies |<----->| Execution Tactics    |
+       | TWAP/VWAP/etc.    |       | market/passive/etc.  |
+       +---------+---------+       +----------+-----------+
+                 |                            |
+                 +-------------+--------------+
+                               |
+                               v
+                     +----------------------+
+                     | Execution Reports    |
+                     | Fills / TCA / Audit  |
+                     +----------+-----------+
+                                |
+                                v
+                     +----------------------+
+                     | Services / API / UI  |
+                     +----------------------+
+```
+
+## Source-of-Truth Layers
+
+The codebase should eventually organize around the following source-of-truth layers.
+
+### Layer 1: Instrument semantics
+
+What belongs here:
+
+- instrument identity
+- tick size
+- contract multiplier
+- session metadata
+- expiry and roll metadata
+
+Modules:
+
+- `src/instruments.py`
+- `src/futures_math.py`
+- `src/futures_sessions.py`
+- `src/futures_roll.py`
+
+### Layer 2: Data semantics
+
+What belongs here:
+
+- loader contracts
+- dataset metadata
+- source provenance
+- frequency and timezone labeling
+
+Modules:
 
 - `src/data_loader.py`
+- `src/dataset_metadata.py`
+
+### Layer 3: Research features and targets
+
+What belongs here:
+
+- proxy microstructure features
+- forward return targets
+- alpha feature matrices
+- signal-quality summaries
+
+Modules:
+
 - `src/features.py`
 - `src/signals.py`
+- `src/microstructure_metrics.py`
+- `src/microstructure_proxies.py`
+- `src/alpha_dataset.py`
+- `src/alpha_split.py`
+
+### Layer 4: Execution demand and policy
+
+What belongs here:
+
+- parent orders
+- schedule policies
+- execution policy configuration
+- model-driven or RL-driven control layers
+
+Modules:
+
 - `src/execution.py`
 - `src/strategies.py`
-- `src/fill_simulator.py`
-- `src/tca.py`
-- `src/backtester.py`
-- `src/monte_carlo.py`
+- `src/strategies_*`
+- `src/strategy_config.py`
 - `src/rl_env.py`
 - `src/rl_policy.py`
-- `src/rl_train.py`
-- `src/rl_backtester.py`
 
-Expected claims:
+### Layer 5: Market interaction
 
-- smart scheduling research on bar data
-- proxy liquidity and order-flow features
-- synthetic fill modeling
-- execution benchmarking and TCA
+Bar path:
 
-Claims this path must not make:
+- `src/fill_simulator.py`
 
-- true queue modeling
-- real exchange matching behavior
-- real maker/taker fill economics
-
-### Path B: Event-Level Synthetic Microstructure Research
-
-Purpose:
-
-- simulate an exchange-like market with explicit order-book state
-- study queue-aware execution decisions
-- compare strategies under a matching engine with latency, cancellations, and partial fills
-
-Core truth:
-
-- this path is synthetic but structurally closer to real market microstructure than the bar path
-
-Target modules:
+LOB path:
 
 - `src/lob_types.py`
 - `src/lob_events.py`
-- `src/lob_replay.py`
 - `src/matching_engine.py`
-- `src/lob_simulator_config.py`
 - `src/lob_generators.py`
 - `src/lob_latency.py`
 - `src/lob_simulator.py`
 - `src/lob_execution.py`
-- `src/lob_execution_runner.py`
+
+### Layer 6: Cost normalization and evaluation
+
+What belongs here:
+
+- synthetic quote construction
+- fill cost decomposition
+- parent-level TCA
+- LOB-specific execution statistics
+- futures normalization
+
+Modules:
+
+- `src/tca.py`
 - `src/lob_tca.py`
-
-Expected claims:
-
-- price-time priority simulation
-- queue-aware passive execution
-- event-level trade and fill logs
-- latency-sensitive synthetic market interaction
-
-Claims this path must not make unless real data is added:
-
-- historical exchange replay
-- real venue microstructure reconstruction
-
-## Cross-Cutting Research Layers
-
-These layers should work across one or both paths.
-
-### Instrument Layer
-
-Purpose:
-
-- standardize instrument metadata across equities, futures, and FX
-
-Target modules:
-
-- `src/instruments.py`
-- `src/futures_math.py`
-- `src/futures_roll.py`
-- `src/calendar_spreads.py`
 - `src/futures_tca.py`
-
-### Predictive Alpha Layer
-
-Purpose:
-
-- move from descriptive signal research to out-of-sample predictive modeling
-
-Target modules:
-
-- `src/alpha_dataset.py`
-- `src/alpha_split.py`
-- `src/alpha_models_linear.py`
-- `src/alpha_models_tree.py`
+- `src/strategy_benchmarks.py`
 - `src/alpha_evaluation.py`
-- `src/strategies_model_adaptive.py`
+- `src/rl_reports.py`
 
-### Orchestration Layer
+### Layer 7: Orchestration and presentation
 
-Purpose:
+What belongs here:
 
-- expose consistent workflows to the CLI, API, and frontend without embedding research logic there
+- multi-step workflows
+- report assembly
+- API transport
+- frontend-specific shaping
 
-Primary modules:
+Modules:
 
 - `src/services.py`
 - `src/api.py`
-- `main.py`
+- `src/plots.py`
+- `frontend/`
 
-## Architecture Diagram
+## Bar Path vs LOB Path
 
-### Current bar-based stack
+This separation is non-negotiable.
+
+### Bar Path
+
+Inputs:
+
+- processed OHLCV data
+
+Mechanics:
+
+- spread and liquidity proxies
+- schedule-driven child orders
+- synthetic bid/ask
+- bar-touch fill logic
+
+Outputs:
+
+- proxy fills
+- proxy TCA
+- baseline strategy comparisons
+
+Claims allowed:
+
+- bar-based execution research
+- proxy microstructure features
+- signal-aware scheduling experiments
+
+Claims not allowed:
+
+- real queue position simulation
+- real exchange matching
+- real hidden liquidity measurement
+
+### LOB Path
+
+Inputs:
+
+- synthetic event flow and synthetic book state
+- eventually real LOB/event data if integrated later
+
+Mechanics:
+
+- explicit book levels
+- price-time priority
+- queue ordering
+- cancellations and modifies
+- partial fills across levels
+- latency-adjusted event ordering
+
+Outputs:
+
+- event logs
+- trade prints
+- execution reports
+- queue-aware TCA
+
+Claims allowed:
+
+- synthetic order-book simulation
+- queue-aware execution benchmarking
+- latency-sensitive execution experiments
+
+Claims not allowed:
+
+- statements implying venue realism beyond implemented assumptions
+
+## Canonical Data Flow
+
+### Bar research flow
 
 ```text
-processed OHLCV CSV
--> load/clean
--> proxy feature engineering
--> parent-order generation
--> schedule generation
--> synthetic placement/fill simulation
--> TCA summary
--> API / frontend / reports
+raw CSV / processed CSV
+-> cleaned market frame
+-> dataset metadata
+-> feature engineering
+-> signal evaluation / alpha scoring
+-> parent order generation
+-> schedule policy
+-> bar-based placement and fills
+-> TCA
+-> reports / API / frontend
 ```
 
-### Target synthetic LOB stack
+### LOB research flow
 
 ```text
 instrument spec + simulator config
--> initial book state
--> exogenous event generation
--> latency application
+-> initial synthetic book
+-> event generation
 -> matching engine state transitions
--> execution child order interaction
--> execution reports and trade prints
--> LOB-aware TCA
--> strategy comparison and reports
+-> execution child orders enter book
+-> fills / queue state / prints
+-> execution reports
+-> LOB TCA
+-> reports / API / frontend
 ```
 
-### Target predictive alpha stack
+## Required Shared Contracts
 
-```text
-prepared market data
--> leakage-safe feature matrix
--> train/validation/test split
--> predictive model training
--> score generation
--> model evaluation
--> execution policy integration
--> out-of-sample strategy comparison
-```
+The following contracts must remain shared across future work.
+
+- dataset metadata contract
+- parent-order contract
+- child-order intent contract
+- execution report contract
+- instrument specification contract
+- report provenance contract
+
+If any subsystem needs a different shape, the change should be introduced through versioned adapters, not silent schema drift.
 
 ## Module Boundary Rules
 
-These boundary rules are mandatory if the codebase is going to stay coherent.
+### Allowed dependencies
 
-### Data and feature modules
+- strategies may depend on execution objects and feature columns
+- TCA may depend on fill outputs and instrument semantics
+- services may depend on all lower layers
+- API may depend on services only
 
-- must be deterministic
-- must not depend on API or frontend modules
-- must not write user-facing reports directly
+### Disallowed dependencies
 
-### Strategy modules
-
-- emit execution intent
-- should not calculate final TCA summaries
-- should not assume a specific transport layer
-
-### Simulation modules
-
-- bar simulation and LOB simulation must remain distinct
-- neither should contain frontend formatting logic
-- stochastic behavior must be parameterized and seedable
-
-### TCA modules
-
-- should consume normalized fills or execution reports
-- should not own schedule generation or market simulation
-
-### Services layer
-
-- can orchestrate workflows
-- can attach metadata and provenance
-- can assemble API-ready responses
-- should avoid embedding nontrivial market logic inline
-
-### API layer
-
-- should translate requests to service calls
-- should validate inputs and shape outputs
-- should not become a second orchestration layer
+- matching engine importing API or plotting code
+- alpha model code importing frontend or API code
+- loader code importing strategy or RL code
+- strategy code writing reports directly to disk
 
 ## Migration Strategy
 
-The codebase should move in the following pattern:
+The repo should grow in the following order:
 
-1. Preserve the current bar-based baseline.
-2. Add shared metadata and provenance contracts.
-3. Add missing theory and research specs in `docs/`.
-4. Add new LOB and alpha modules beside existing code.
-5. Integrate them through adapters and service-layer mode switches.
-6. Only then expose broader CLI/API/frontend entry points.
+1. stabilize and document the current baseline
+2. formalize metadata and shared contracts
+3. add microstructure knowledge and proxy metrics
+4. add LOB domain objects
+5. add matching engine
+6. add simulator flow and latency
+7. connect execution tactics to the LOB path
+8. expand strategy coverage
+9. add predictive alpha stack
+10. add futures and FX instrument depth
+11. expose mature workflows through API and UI
 
-This prevents unstable internal experiments from becoming accidental public interfaces.
+## Success Criteria For This Architecture
 
-## What Success Looks Like
+The architecture is working when:
 
-The target architecture is achieved when:
+- new modules can be added without rewriting unrelated layers
+- the bar path still runs cleanly as a baseline
+- the LOB path can evolve without contaminating proxy claims
+- futures support uses instrument semantics instead of ticker heuristics
+- alpha models plug into execution through shared contracts
+- services can assemble workflows without needing to know internal implementation details of every subsystem
 
-- the bar-based path remains a strong baseline
-- the synthetic LOB path is a real event-level simulator
-- futures and FX semantics are first-class in shared instrument metadata
-- predictive alpha research is out-of-sample and execution-integrated
-- API, CLI, and reports expose these paths through stable service boundaries
+## Immediate Next Artifacts
 
-## Related Documents
+The next artifacts that should exist after this document are:
 
-- `docs/research_execution_master_plan.md`
-- `docs/limit_order_fill_simulator_plan.md`
+- characterization tests for the current bar-based baseline
+- dataset metadata helper module
+- report provenance helper module
+- microstructure docs and proxy metric modules
+
+These create the minimum discipline needed before implementing the matching engine path.
