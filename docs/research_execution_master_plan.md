@@ -348,6 +348,490 @@ Required anti-leakage rules:
 - any rolling feature must only use past and current rows
 - train/validation/test split boundaries must be date-based, not row-random
 
+## Shared Spec 6: Canonical object relationships
+
+The project will become much harder to reason about once the repo contains bar data, event data, simulated exchange state, execution state, futures metadata, and alpha model artifacts. The object relationship graph must therefore be explicit.
+
+Canonical relationship chain:
+
+`InstrumentSpec -> DatasetMetadata -> ParentOrder -> ChildOrderIntent -> PlacementDecision -> ExecutionReport -> ParentTCAResult`
+
+Additional LOB-mode relationship chain:
+
+`InstrumentSpec -> BookSnapshot/EventBatch -> RestingOrder/TradePrint -> ExecutionReport -> ParentTCAResult`
+
+Rules:
+
+- `InstrumentSpec` is the root dependency for anything instrument-aware.
+- `DatasetMetadata` describes the basis and provenance of any research frame.
+- `ParentOrder` is the canonical expression of execution demand.
+- `ChildOrderIntent` expresses schedule output before placement.
+- `PlacementDecision` expresses where the intent is posted.
+- `ExecutionReport` expresses actual realized fills.
+- `ParentTCAResult` is the normalized summary row used in comparisons.
+
+Anti-patterns to avoid:
+
+- strategy modules reading raw CSV path assumptions directly
+- TCA modules inferring instrument semantics from ticker string parsing
+- alpha modules mutating parent-order or fill schemas in place
+- LOB execution reports using a one-off schema incompatible with current TCA
+
+## Shared Spec 7: Canonical service boundaries
+
+The current repository already has a `services.py` module. As the codebase grows, service boundaries must be made stricter so research logic does not leak into API handlers or frontend-specific view shaping.
+
+Recommended boundaries:
+
+- `src/data_loader.py`: raw external data ingestion and cleaning
+- `src/features.py`: deterministic feature generation on prepared data
+- `src/signals.py`: descriptive signal evaluation only
+- `src/alpha_*`: predictive model dataset, train, predict, evaluate
+- `src/strategies_*`: schedule policies that emit child-order intents
+- `src/fill_simulator.py`: bar-based placement and fill simulation only
+- `src/lob_*` and `src/matching_engine.py`: event-driven exchange simulation only
+- `src/tca.py`, `src/lob_tca.py`, `src/futures_tca.py`: cost and performance normalization only
+- `src/services.py`: orchestration of end-to-end user-facing workflows
+- `src/api.py`: transport layer only
+
+Prohibited service leakage:
+
+- API handlers should not compute features inline.
+- Frontend-oriented formatting should not live in simulation or TCA modules.
+- Strategy modules should not write reports to disk.
+- Matching engine code should not import plotting or API modules.
+
+## Shared Spec 8: Required output artifact families
+
+The project should eventually emit outputs in a small number of standardized families rather than ad hoc CSV names.
+
+Required artifact families:
+
+- `dataset_profile`
+- `feature_frame`
+- `signal_evaluation`
+- `alpha_scorecard`
+- `parent_orders`
+- `execution_tape`
+- `fill_tape`
+- `parent_tca_results`
+- `strategy_comparison`
+- `lob_event_log`
+- `lob_snapshot_series`
+- `futures_roll_profile`
+- `rl_policy_report`
+
+Required artifact metadata fields:
+
+- `artifact_family`
+- `artifact_version`
+- `generated_at`
+- `research_mode`
+- `data_basis`
+- `source_dataset`
+
+## Shared Spec 9: Naming and schema stability rules
+
+To prevent churn and accidental incompatibility, schema naming should follow a consistent standard.
+
+Rules:
+
+- quantity fields must explicitly state whether they mean submitted, filled, or remaining quantity
+- cost fields must explicitly encode units when not obvious, for example `_bps`, `_ticks`, `_usd`
+- any proxy metric must include `_proxy` in its raw internal feature name unless intentionally promoted to a model score or summary artifact
+- identifier columns must end in `_id`
+- boolean flags should end in `_flag` where ambiguity is possible
+- model scores should use `score` rather than `signal` once they come from fitted predictive models
+
+Examples:
+
+- `filled_quantity`
+- `adverse_selection_cost_bps`
+- `queue_pressure_proxy`
+- `parent_order_id`
+- `maker_flag`
+- `alpha_model_score`
+
+## Shared Spec 10: Backward-compatibility policy
+
+Because the repo already has working tests, API endpoints, and a frontend, the implementation plan needs an explicit policy for breakage.
+
+Rules:
+
+- preserve existing public endpoint names unless there is a strong reason to version them
+- preserve current CSV artifact columns where practical and add new columns additively
+- prefer new optional parameters to silent behavior changes
+- when a breaking change is unavoidable, it must be called out in README and test names
+
+Migration standard:
+
+- add new interface
+- adapt callers
+- deprecate old interface
+- remove old interface only after tests and docs reflect the new path
+
+## Dependency Graph
+
+The phase order is not enough on its own. The repo also needs a dependency graph that explains what cannot start until something else exists.
+
+### Hard dependencies
+
+- Phase 0 is a dependency for every later phase.
+- Phase 2 is a dependency for Phases 3, 4, and 5.
+- Phase 3 is a dependency for Phase 4 and Phase 5.
+- Phase 4 is a dependency for meaningful Phase 5 integration.
+- Phase 7 depends on `InstrumentSpec` and quantity normalization policies being fixed.
+- Phase 8 depends on feature stability and leakage rules from Shared Spec 5.
+- Phase 9 depends on strategy coverage from Phase 6 and stronger state inputs from Phases 1, 5, or 8.
+- Phase 10 depends on stable artifact families and service boundaries.
+
+### Soft dependencies
+
+- Phase 1 can proceed in parallel with Phase 0.3 and 0.4 once metadata conventions are clear.
+- Phase 6 can begin before Phase 5 completes if it targets only the existing bar path first.
+- Phase 8 can begin before Phase 7 if it remains equity/bar focused.
+- Phase 7 can begin before the full LOB stack if it starts with metadata and normalization work.
+
+### Parallelization guidance
+
+Good parallel tracks once Phase 0 is complete:
+
+- Track A: microstructure docs and proxy metrics
+- Track B: LOB domain types and matching engine
+- Track C: strategy refactors and new policies
+- Track D: alpha dataset and modeling
+
+Bad parallelization patterns:
+
+- building API and frontend surfaces before core schemas stabilize
+- adding futures analytics before `InstrumentSpec` exists
+- adding RL state features before feature names and model-score conventions are fixed
+
+## Canonical Interface Sketches
+
+These are not final code signatures, but they are the target shape needed to keep implementations aligned.
+
+### Parent order
+
+Required semantic fields:
+
+- `parent_order_id`
+- `instrument_id`
+- `ticker`
+- `side`
+- `quantity`
+- `start_time`
+- `end_time`
+- `participation_cap`
+- `benchmark_price_type`
+- `research_mode`
+
+### Child order intent
+
+Required semantic fields:
+
+- `child_order_id`
+- `parent_order_id`
+- `timestamp`
+- `instrument_id`
+- `ticker`
+- `side`
+- `strategy`
+- `quantity`
+- `reference_price`
+- `schedule_reason`
+
+### Placement decision
+
+Required semantic fields:
+
+- `child_order_id`
+- `placement_style`
+- `resolved_placement_style`
+- `order_type`
+- `limit_price`
+- `venue`
+- `time_in_force`
+- `maker_taker_intent`
+
+### Parent TCA result
+
+Required semantic fields:
+
+- `parent_order_id`
+- `strategy`
+- `simulation_model`
+- `data_basis`
+- `arrival_price`
+- `avg_fill_price`
+- `implementation_shortfall_bps`
+- `fill_rate`
+- `opportunity_cost_bps`
+- `execution_duration`
+
+### Alpha model artifact
+
+Required semantic fields:
+
+- `model_name`
+- `feature_set_name`
+- `train_start`
+- `train_end`
+- `validation_start`
+- `validation_end`
+- `test_start`
+- `test_end`
+- `target_horizon`
+- `data_basis`
+
+## Milestone Gates
+
+Each major subsystem should have a gate that blocks the next layer from claiming readiness too early.
+
+### Gate G0: Baseline preservation
+
+Must be true before Phase 2 is considered active:
+
+- characterization tests exist for current scheduling and fill logic
+- README and docs explicitly distinguish proxy vs future true LOB work
+- dataset metadata and provenance policy exist
+
+### Gate G1: LOB domain readiness
+
+Must be true before matching engine work is considered stable:
+
+- order, event, and snapshot schemas are defined
+- replayability from event logs is possible
+- latency-aware timestamps exist in the event schema
+
+### Gate G2: Matching engine readiness
+
+Must be true before LOB simulator work claims usefulness:
+
+- price-time priority is implemented
+- market orders, crossing limits, cancels, and modify semantics exist
+- queue ordering tests pass
+
+### Gate G3: Exchange simulation readiness
+
+Must be true before execution-on-LOB claims are made:
+
+- exogenous arrivals, cancels, and market orders exist
+- latency affects effective ordering
+- full episode runner produces event logs, prints, and snapshots
+
+### Gate G4: Execution research readiness
+
+Must be true before saying the project supports queue-aware execution:
+
+- parent orders can trade against the LOB simulator
+- passive and aggressive tactics are supported
+- queue position affects fill timing or likelihood
+- LOB TCA metrics exist
+
+### Gate G5: Alpha research readiness
+
+Must be true before claiming predictive alpha modeling:
+
+- leakage-safe dataset builder exists
+- at least two model families exist
+- out-of-sample evaluation exists
+- model scores are integrated into execution comparisons
+
+### Gate G6: Futures readiness
+
+Must be true before claiming futures specialization:
+
+- instrument specs support futures
+- tick-value and contract arithmetic exist
+- roll methodology is implemented and explicit
+- TCA outputs can be normalized in futures-relevant units
+
+## Per-Phase Definition of Done Checklists
+
+The earlier commit lists are detailed, but each phase also needs a concise end-state checklist.
+
+### Phase 0 done when
+
+- baseline behavior is pinned by tests
+- shared metadata and provenance helpers exist
+- architecture docs explain the target stack
+
+### Phase 1 done when
+
+- microstructure docs cover the named concepts at a usable level
+- proxy metrics exist in code
+- extended proxy features can be integrated without breaking defaults
+
+### Phase 2 done when
+
+- LOB objects and event types are explicit
+- event replay is deterministic
+- object relationships are documented
+
+### Phase 3 done when
+
+- matching engine supports insert, match, cancel, modify, and iceberg basics
+- queue ordering is test-covered
+
+### Phase 4 done when
+
+- exchange flow generators exist
+- latency model exists
+- simulator can run a full episode with reproducible outputs
+
+### Phase 5 done when
+
+- execution child orders interact with the simulated book
+- queue-aware fills and cancels are possible
+- LOB execution results map into normalized TCA
+
+### Phase 6 done when
+
+- strategy logic is modular
+- IS and adaptive participation are implemented
+- benchmark utilities compare strategy families statistically
+
+### Phase 7 done when
+
+- instrument metadata supports futures and FX semantics
+- roll and spread helpers exist
+- TCA normalization covers ticks and dollars
+
+### Phase 8 done when
+
+- leakage-safe alpha datasets exist
+- baseline linear and nonlinear models exist
+- out-of-sample scorecards exist
+- model scores influence execution policy comparisons
+
+### Phase 9 done when
+
+- RL has train/eval splits
+- state can optionally include richer features
+- RL reports include regret and policy behavior summaries
+
+### Phase 10 done when
+
+- services expose the main research modes coherently
+- CLI and API paths are explicit and non-ambiguous
+- docs cover end-to-end usage flows
+
+## Implementation Risks and Failure Modes
+
+This project is large enough that the plan should name the most likely ways it can go wrong.
+
+### Risk 1: Proxy and real concepts get blended
+
+Failure mode:
+
+- the repo starts presenting bar-derived features as if they were real order-book measurements
+
+Mitigation:
+
+- enforce `data_basis`
+- keep `_proxy` naming
+- separate bar and LOB service paths
+
+### Risk 2: Matching engine and simulator drift apart
+
+Failure mode:
+
+- simulator generators emit events the engine cannot handle cleanly
+
+Mitigation:
+
+- formal event schema
+- replay tests
+- G1 and G2 milestone gates
+
+### Risk 3: Strategy outputs become incompatible across paths
+
+Failure mode:
+
+- bar strategies and LOB strategies return incompatible child-order or fill schemas
+
+Mitigation:
+
+- centralize child-order intent and execution report contracts
+- add adapter layers rather than special-case fields everywhere
+
+### Risk 4: Alpha research becomes leaky or overfit
+
+Failure mode:
+
+- model performance looks strong because of row-random splitting or future leakage
+
+Mitigation:
+
+- date-based split utilities
+- explicit leakage checks
+- out-of-sample-only scorecards
+
+### Risk 5: Futures support becomes cosmetic only
+
+Failure mode:
+
+- futures are mentioned in docs, but the code still assumes equities everywhere
+
+Mitigation:
+
+- instrument-rooted arithmetic
+- futures-specific normalization tests
+- roll/spread helpers as first-class modules
+
+### Risk 6: API and frontend cement unstable schemas too early
+
+Failure mode:
+
+- UI code starts depending on fields that are still changing across core modules
+
+Mitigation:
+
+- delay broad productization until core schemas stabilize
+- treat services as the only frontend-facing shaping layer
+
+## Recommended First 15 Build Commits
+
+This is the narrowest high-value path that turns the document into action while keeping momentum.
+
+1. `docs: define target architecture for proxy execution, lob simulation, futures, and alpha research`
+2. `test: add characterization tests for existing scheduling fill and tca behavior`
+3. `feat: add dataset metadata and provenance helpers`
+4. `feat: add shared research result provenance columns`
+5. `docs: add limit order book mechanics specification`
+6. `docs: add maker taker fees latency arbitrage and adverse selection notes`
+7. `docs: add vpin kyle lambda and almgren chriss implementation notes`
+8. `feat: add microstructure metric proxy module`
+9. `feat: add queue pressure and hidden liquidity proxy features`
+10. `feat: add order book core data types`
+11. `feat: add exchange event schema with latency aware timestamps`
+12. `feat: add book replay and serialization helpers`
+13. `feat: implement empty book and price level management`
+14. `feat: implement limit order insertion with price time priority`
+15. `feat: implement market order execution across book levels`
+
+Reason for this ordering:
+
+- the first 9 commits remove conceptual ambiguity and establish metadata discipline
+- commits 10 to 15 produce the first durable LOB foundation without requiring premature UI or service integration
+
+## Review Protocol For Every Future PR
+
+The plan should also specify how work gets checked, not just what gets built.
+
+Every PR that implements part of this plan should answer:
+
+1. Which phase and commit item does this PR satisfy?
+2. Which shared spec does it rely on or modify?
+3. Does it add `real`, `synthetic`, or `proxy` outputs?
+4. What schema did it add or change?
+5. Which tests prove the new behavior?
+6. Does it preserve the current bar-based baseline?
+7. Does it introduce any new randomness, and if so, where is the seed?
+
+If a PR cannot answer those questions cleanly, it is likely crossing boundaries or introducing ambiguity too early.
+
 ## Implementation Plan
 
 The phases below are ordered to preserve repo integrity and reduce risk.
