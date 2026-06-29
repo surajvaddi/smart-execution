@@ -135,11 +135,14 @@ def filter_market_data(
     return filtered
 
 
-def prepare_features(data: pd.DataFrame) -> pd.DataFrame:
+def prepare_features(
+    data: pd.DataFrame,
+    include_extended_proxies: bool = False,
+) -> pd.DataFrame:
     """Return market data with microstructure proxy features."""
-    if all(col in data.columns for col in FEATURE_COLUMNS):
+    if all(col in data.columns for col in FEATURE_COLUMNS) and not include_extended_proxies:
         return data.copy()
-    return add_microstructure_features(data)
+    return add_microstructure_features(data, include_extended_proxies=include_extended_proxies)
 
 
 def volume_curve(data: pd.DataFrame) -> pd.DataFrame:

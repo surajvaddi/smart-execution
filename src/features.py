@@ -10,6 +10,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.microstructure_proxies import (
+    compute_hidden_liquidity_proxy,
+    compute_passive_fill_risk_proxy,
+    compute_queue_pressure_proxy,
+)
+
 
 # Feature engineering starts from the cleaned data-loader schema. `ticker` is
 # required so rolling calculations can be isolated per symbol.
@@ -27,6 +33,12 @@ FEATURE_COLUMNS = [
     "reversal_3",
     "liquidity_score",
     "alpha_signal",
+]
+
+EXTENDED_PROXY_COLUMNS = [
+    "queue_pressure_proxy",
+    "hidden_liquidity_proxy",
+    "passive_fill_risk_proxy",
 ]
 
 
@@ -73,7 +85,10 @@ def estimate_volume_curve(df: pd.DataFrame) -> pd.Series:
     return volume_curve
 
 
-def add_microstructure_features(df: pd.DataFrame) -> pd.DataFrame:
+def add_microstructure_features(
+    df: pd.DataFrame,
+    include_extended_proxies: bool = False,
+) -> pd.DataFrame:
     """Add spread, volume, imbalance, volatility, liquidity, and momentum proxies."""
     validate_base_columns(df)
     # Grouping by ticker prevents rolling windows, ranks, and returns from
@@ -81,14 +96,21 @@ def add_microstructure_features(df: pd.DataFrame) -> pd.DataFrame:
     featured = (
         df.copy()
         .groupby("ticker", group_keys=False)
-        .apply(_add_features_for_ticker)
+        .apply(_add_features_for_ticker, include_extended_proxies=include_extended_proxies)
     )
     validate_feature_columns(featured)
+    if include_extended_proxies:
+        missing = [col for col in EXTENDED_PROXY_COLUMNS if col not in featured.columns]
+        if missing:
+            raise ValueError(f"Missing required extended proxy columns: {missing}")
     return featured
 
 
 
-def _add_features_for_ticker(df: pd.DataFrame) -> pd.DataFrame:
+def _add_features_for_ticker(
+    df: pd.DataFrame,
+    include_extended_proxies: bool = False,
+) -> pd.DataFrame:
     """Add feature columns for one ticker's time-ordered bars."""
     out = df.sort_index().copy()
 
@@ -138,5 +160,10 @@ def _add_features_for_ticker(df: pd.DataFrame) -> pd.DataFrame:
     # Centering makes the signal easier to interpret: positive means relatively
     # bullish pressure and negative means relatively bearish pressure.
     out["alpha_signal"] = out["alpha_signal"] - out["alpha_signal"].mean()
+
+    if include_extended_proxies:
+        out = out.join(compute_queue_pressure_proxy(out))
+        out = out.join(compute_hidden_liquidity_proxy(out))
+        out = out.join(compute_passive_fill_risk_proxy(out))
 
     return out
