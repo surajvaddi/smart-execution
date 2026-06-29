@@ -9,6 +9,8 @@ import {
   Loader2,
   Play,
   RefreshCcw,
+  Save,
+  Trash2,
   Table2
 } from "lucide-react";
 import "./styles.css";
@@ -16,7 +18,15 @@ import "./styles.css";
 type Dataset = {
   name: string;
   path: string;
+  ticker: string | null;
+  period: string | null;
+  interval: string | null;
   rows: number | null;
+  date_min: string | null;
+  date_max: string | null;
+  time_min: string | null;
+  time_max: string | null;
+  tickers: string[];
 };
 
 type RecordRow = Record<string, string | number | boolean | null>;
@@ -56,6 +66,8 @@ const DEFAULT_ADAPTIVE_WEIGHTS = {
   liquidity_boost_multiplier: 1.2,
   urgency_weight: 1.0
 };
+const ADAPTIVE_PRESETS_KEY = "smart-execution-adaptive-presets";
+const ADAPTIVE_SELECTED_KEY = "smart-execution-adaptive-selected";
 
 const ADAPTIVE_FIELDS = [
   { key: "bullish_signal_multiplier", label: "Bullish signal", step: 0.05, min: 0.1, max: 3 },
@@ -66,12 +78,25 @@ const ADAPTIVE_FIELDS = [
   { key: "urgency_weight", label: "Urgency weight", step: 0.05, min: 0, max: 5 }
 ] as const;
 
+type AdaptiveWeights = typeof DEFAULT_ADAPTIVE_WEIGHTS;
+type AdaptivePreset = {
+  name: string;
+  weights: AdaptiveWeights;
+};
+
 function App() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [datasetPath, setDatasetPath] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [maxOrders, setMaxOrders] = useState(1);
   const [placements, setPlacements] = useState<string[]>(["market", "passive_limit", "adaptive_limit"]);
   const [adaptiveWeights, setAdaptiveWeights] = useState(DEFAULT_ADAPTIVE_WEIGHTS);
+  const [adaptivePresetName, setAdaptivePresetName] = useState("");
+  const [adaptivePresetSelection, setAdaptivePresetSelection] = useState("Default");
+  const [adaptivePresets, setAdaptivePresets] = useState<AdaptivePreset[]>([]);
   const [backtest, setBacktest] = useState<BacktestResponse | null>(null);
   const [grid, setGrid] = useState<GridResponse | null>(null);
   const [tapeStrategy, setTapeStrategy] = useState("all");
@@ -82,6 +107,28 @@ function App() {
 
   useEffect(() => {
     loadDatasets();
+  }, []);
+
+  useEffect(() => {
+    const selected = datasets.find((dataset) => dataset.path === datasetPath);
+    if (!selected) {
+      return;
+    }
+    setStartDate(normalizeDateValue(selected.date_min));
+    setEndDate(normalizeDateValue(selected.date_max));
+    setStartTime(normalizeTimeValue(selected.time_min));
+    setEndTime(normalizeTimeValue(selected.time_max));
+  }, [datasets, datasetPath]);
+
+  useEffect(() => {
+    const presets = readAdaptivePresets();
+    setAdaptivePresets(presets);
+    const selected = window.sessionStorage.getItem(ADAPTIVE_SELECTED_KEY) || "Default";
+    setAdaptivePresetSelection(selected);
+    const preset = presets.find((item) => item.name === selected);
+    if (preset) {
+      setAdaptiveWeights(preset.weights);
+    }
   }, []);
 
   async function loadDatasets() {
@@ -110,6 +157,10 @@ function App() {
       const response = await postJson<BacktestResponse>("/api/backtest", {
         input_csv: datasetPath,
         max_orders_per_ticker: maxOrders,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+        start_time: startTime || undefined,
+        end_time: endTime || undefined,
         adaptive_weights: adaptiveWeights
       });
       setBacktest(response);
@@ -132,6 +183,10 @@ function App() {
       const response = await postJson<GridResponse>("/api/execution-grid", {
         input_csv: datasetPath,
         max_orders_per_ticker: maxOrders,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+        start_time: startTime || undefined,
+        end_time: endTime || undefined,
         placement_styles: placements,
         adaptive_weights: adaptiveWeights,
         fill_row_limit: 400
@@ -159,6 +214,46 @@ function App() {
     [grid]
   );
 
+  function saveAdaptivePreset() {
+    const name = adaptivePresetName.trim();
+    if (!name) {
+      setError("Enter a preset name before saving.");
+      return;
+    }
+    const nextPreset: AdaptivePreset = { name, weights: adaptiveWeights };
+    const nextPresets = upsertPreset(adaptivePresets, nextPreset);
+    setAdaptivePresets(nextPresets);
+    setAdaptivePresetSelection(name);
+    window.sessionStorage.setItem(ADAPTIVE_PRESETS_KEY, JSON.stringify(nextPresets));
+    window.sessionStorage.setItem(ADAPTIVE_SELECTED_KEY, name);
+    setAdaptivePresetName("");
+  }
+
+  function applyAdaptivePreset(name: string) {
+    const preset = adaptivePresets.find((item) => item.name === name);
+    setAdaptivePresetSelection(name);
+    window.sessionStorage.setItem(ADAPTIVE_SELECTED_KEY, name);
+    if (preset) {
+      setAdaptiveWeights(preset.weights);
+    } else if (name === "Default") {
+      setAdaptiveWeights(DEFAULT_ADAPTIVE_WEIGHTS);
+    }
+  }
+
+  function deleteAdaptivePreset(name: string) {
+    if (name === "Default") {
+      return;
+    }
+    const nextPresets = adaptivePresets.filter((item) => item.name !== name);
+    setAdaptivePresets(nextPresets);
+    window.sessionStorage.setItem(ADAPTIVE_PRESETS_KEY, JSON.stringify(nextPresets));
+    if (adaptivePresetSelection === name) {
+      setAdaptivePresetSelection("Default");
+      window.sessionStorage.setItem(ADAPTIVE_SELECTED_KEY, "Default");
+      setAdaptiveWeights(DEFAULT_ADAPTIVE_WEIGHTS);
+    }
+  }
+
   return (
     <main className="shell">
       <aside className="sidebar">
@@ -177,13 +272,38 @@ function App() {
             <select id="dataset" value={datasetPath} onChange={(event) => setDatasetPath(event.target.value)}>
               {datasets.map((dataset) => (
                 <option key={dataset.path} value={dataset.path}>
-                  {dataset.name}
+                  {formatDatasetLabel(dataset)}
                 </option>
               ))}
             </select>
             <button className="iconButton" onClick={loadDatasets} title="Refresh datasets" type="button">
               <RefreshCcw size={16} />
             </button>
+          </div>
+          {selectedDatasetSummary(datasets, datasetPath) ? (
+            <div className="datasetMeta">
+              {selectedDatasetSummary(datasets, datasetPath)?.map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+          ) : null}
+          <div className="rangeGrid">
+            <label className="weightField">
+              <span>Start date</span>
+              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+            </label>
+            <label className="weightField">
+              <span>End date</span>
+              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+            </label>
+            <label className="weightField">
+              <span>Start time</span>
+              <input type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} />
+            </label>
+            <label className="weightField">
+              <span>End time</span>
+              <input type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} />
+            </label>
           </div>
           <label htmlFor="maxOrders">Parent orders per ticker</label>
           <input
@@ -220,6 +340,37 @@ function App() {
             <BarChart3 size={16} />
             <span>Adaptive Weights</span>
           </div>
+          <div className="presetRow">
+            <label className="weightField">
+              <span>Preset</span>
+              <select value={adaptivePresetSelection} onChange={(event) => applyAdaptivePreset(event.target.value)}>
+                <option value="Default">Default</option>
+                {adaptivePresets.map((preset) => (
+                  <option key={preset.name} value={preset.name}>
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="weightField">
+              <span>Save as</span>
+              <input
+                type="text"
+                value={adaptivePresetName}
+                onChange={(event) => setAdaptivePresetName(event.target.value)}
+                placeholder="Current session"
+              />
+            </label>
+          </div>
+          <div className="presetActions">
+            <button className="iconButton wide" onClick={saveAdaptivePreset} type="button">
+              <Save size={14} />
+              Save preset
+            </button>
+            <button className="iconButton wide danger" onClick={() => applyAdaptivePreset("Default")} type="button">
+              Reset defaults
+            </button>
+          </div>
           <div className="weightGrid">
             {ADAPTIVE_FIELDS.map((field) => (
               <label className="weightField" key={field.key}>
@@ -240,9 +391,18 @@ function App() {
               </label>
             ))}
           </div>
-          <button className="iconButton wide" onClick={() => setAdaptiveWeights(DEFAULT_ADAPTIVE_WEIGHTS)} type="button">
-            Reset
-          </button>
+          {adaptivePresets.length > 0 ? (
+            <div className="presetList">
+              {adaptivePresets.map((preset) => (
+                <div className="presetItem" key={preset.name}>
+                  <span>{preset.name}</span>
+                  <button className="iconButton tiny danger" onClick={() => deleteAdaptivePreset(preset.name)} type="button">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </section>
 
         <div className="actions">
@@ -328,6 +488,59 @@ function App() {
       </section>
     </main>
   );
+}
+
+function selectedDatasetSummary(datasets: Dataset[], datasetPath: string): string[] | null {
+  const dataset = datasets.find((item) => item.path === datasetPath);
+  if (!dataset) {
+    return null;
+  }
+  const summary: string[] = [];
+  if (dataset.ticker || dataset.period || dataset.interval) {
+    summary.push([dataset.ticker, dataset.period, dataset.interval].filter(Boolean).join(" / "));
+  }
+  if (dataset.rows !== null) {
+    summary.push(`${dataset.rows.toLocaleString()} rows`);
+  }
+  if (dataset.date_min || dataset.date_max) {
+    summary.push(`Dates: ${formatRangeValue(dataset.date_min)} to ${formatRangeValue(dataset.date_max)}`);
+  }
+  if (dataset.time_min || dataset.time_max) {
+    summary.push(`Times: ${formatRangeValue(dataset.time_min)} to ${formatRangeValue(dataset.time_max)}`);
+  }
+  if (dataset.tickers.length > 0) {
+    summary.push(`Tickers: ${dataset.tickers.join(", ")}`);
+  }
+  return summary.length > 0 ? summary : null;
+}
+
+function formatDatasetLabel(dataset: Dataset): string {
+  const parts = [dataset.ticker || dataset.name];
+  if (dataset.period || dataset.interval) {
+    parts.push([dataset.period, dataset.interval].filter(Boolean).join(" / "));
+  }
+  return parts.filter(Boolean).join(" - ");
+}
+
+function formatRangeValue(value: string | null): string {
+  if (!value) {
+    return "All";
+  }
+  return value;
+}
+
+function normalizeDateValue(value: string | null): string {
+  if (!value) {
+    return "";
+  }
+  return value.slice(0, 10);
+}
+
+function normalizeTimeValue(value: string | null): string {
+  if (!value) {
+    return "";
+  }
+  return value.slice(0, 8);
 }
 
 function FillTapeFilters({
@@ -502,6 +715,27 @@ function filterTapeRows(rows: RecordRow[], strategy: string, placement: string) 
     const placementMatches = placement === "all" || row.placement_style === placement;
     return strategyMatches && placementMatches;
   });
+}
+
+function readAdaptivePresets(): AdaptivePreset[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  const raw = window.sessionStorage.getItem(ADAPTIVE_PRESETS_KEY);
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as AdaptivePreset[];
+    return parsed.filter((preset) => preset && typeof preset.name === "string" && preset.weights);
+  } catch {
+    return [];
+  }
+}
+
+function upsertPreset(presets: AdaptivePreset[], nextPreset: AdaptivePreset): AdaptivePreset[] {
+  const filtered = presets.filter((preset) => preset.name !== nextPreset.name);
+  return [...filtered, nextPreset].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function buildMetricCards(summary: RecordRow[]) {

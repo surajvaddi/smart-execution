@@ -38,7 +38,7 @@ def test_backtest_endpoint_accepts_project_relative_dataset(tmp_path, monkeypatc
 
     data_dir = tmp_path / "data" / "processed"
     data_dir.mkdir(parents=True)
-    path = data_dir / "sample.csv"
+    path = data_dir / "SPY_5d_5m.csv"
     sample_market_data().to_csv(path)
     monkeypatch.setattr(api, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(api, "PROCESSED_DATA_DIR", data_dir)
@@ -46,13 +46,35 @@ def test_backtest_endpoint_accepts_project_relative_dataset(tmp_path, monkeypatc
 
     response = client.post(
         "/api/backtest",
-        json={"input_csv": "data/processed/sample.csv", "max_orders_per_ticker": 1},
+        json={"input_csv": "data/processed/SPY_5d_5m.csv", "max_orders_per_ticker": 1},
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert len(payload["summary"]) == 4
     assert payload["meta"]["result_rows"] == 4
+
+
+def test_dataset_endpoint_returns_metadata(tmp_path, monkeypatch) -> None:
+    import src.api as api
+
+    data_dir = tmp_path / "data" / "processed"
+    data_dir.mkdir(parents=True)
+    path = data_dir / "SPY_5d_5m.csv"
+    sample_market_data().to_csv(path)
+    monkeypatch.setattr(api, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(api, "PROCESSED_DATA_DIR", data_dir)
+    client = TestClient(api.create_app())
+
+    response = client.get("/api/datasets")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["datasets"][0]["ticker"] == "SPY"
+    assert payload["datasets"][0]["period"] == "5d"
+    assert payload["datasets"][0]["interval"] == "5m"
+    assert payload["datasets"][0]["rows"] == len(sample_market_data())
+    assert payload["datasets"][0]["tickers"]
 
 
 def test_execution_grid_rejects_invalid_placement(tmp_path, monkeypatch) -> None:

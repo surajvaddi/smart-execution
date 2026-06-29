@@ -75,15 +75,12 @@ def create_app() -> FastAPI:
     def datasets() -> Dict[str, List[Dict[str, Any]]]:
         files = []
         for path in sorted(PROCESSED_DATA_DIR.glob("*.csv")):
-            try:
-                row_count = sum(1 for _ in path.open("r", encoding="utf-8")) - 1
-            except OSError:
-                row_count = None
+            metadata = _dataset_metadata(path)
             files.append(
                 {
                     "name": path.name,
                     "path": str(path.relative_to(PROJECT_ROOT)),
-                    "rows": row_count,
+                    **metadata,
                 }
             )
         return {"datasets": files}
@@ -219,6 +216,42 @@ def _meta(data: pd.DataFrame, results: pd.DataFrame) -> Dict[str, Any]:
         "market_rows": len(data),
         "result_rows": len(results),
         "tickers": sorted(data["ticker"].dropna().unique().tolist()) if "ticker" in data else [],
+    }
+
+
+def _dataset_metadata(path: Path) -> Dict[str, Any]:
+    """Return basic metadata for a processed CSV."""
+    try:
+        data = pd.read_csv(path, index_col=0, parse_dates=True)
+        row_count = len(data)
+        date_min = data["date"].min() if "date" in data else None
+        date_max = data["date"].max() if "date" in data else None
+        time_min = data["time"].min() if "time" in data else None
+        time_max = data["time"].max() if "time" in data else None
+        tickers = sorted(data["ticker"].dropna().unique().tolist()) if "ticker" in data else []
+    except Exception:
+        row_count = None
+        date_min = None
+        date_max = None
+        time_min = None
+        time_max = None
+        tickers = []
+
+    stem_parts = path.stem.split("_")
+    ticker = stem_parts[0] if stem_parts else path.stem
+    period = stem_parts[1] if len(stem_parts) > 1 else None
+    interval = stem_parts[2] if len(stem_parts) > 2 else None
+
+    return {
+        "ticker": ticker,
+        "period": period,
+        "interval": interval,
+        "rows": row_count,
+        "date_min": _json_value(date_min),
+        "date_max": _json_value(date_max),
+        "time_min": _json_value(time_min),
+        "time_max": _json_value(time_max),
+        "tickers": tickers,
     }
 
 
