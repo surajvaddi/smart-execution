@@ -43,6 +43,43 @@ This project therefore uses OHLCV-derived proxies:
 
 These are research approximations, not production execution models or real market microstructure measurements.
 
+## Current Vs Target Architecture
+
+The repository currently supports a bar-based execution research stack and does not yet implement a true event-level limit order book simulator.
+
+Current path:
+
+```text
+processed OHLCV data
+-> proxy features
+-> parent orders
+-> TWAP / VWAP / POV / Adaptive schedules
+-> synthetic placement and fill models
+-> TCA and strategy comparison
+```
+
+Target path:
+
+```text
+instrument metadata
+-> synthetic exchange state
+-> order arrivals, cancels, and market orders
+-> price-time priority matching engine
+-> queue-aware execution interaction
+-> event-level fills and LOB-aware TCA
+```
+
+That target architecture is specified in:
+
+- `docs/architecture/target_research_stack.md`
+- `docs/research_execution_master_plan.md`
+
+The current code should be described as:
+
+- a bar-based execution backtester with microstructure-inspired proxy features
+- a synthetic fill-simulation research tool
+- not yet a true exchange-state limit order book simulator
+
 ## Current Capabilities
 
 Implemented phases:
