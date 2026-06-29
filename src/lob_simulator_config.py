@@ -1,4 +1,4 @@
-"""Configuration objects for the synthetic LOB simulator."""
+"""Configuration models for synthetic LOB simulation."""
 
 from __future__ import annotations
 
@@ -7,10 +7,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ArrivalProcessConfig:
-    """Config for synthetic limit-order arrivals."""
+    """Controls exogenous limit-order arrival behavior."""
 
     events_per_step: int = 4
-    price_offsets: tuple[int, ...] = (0, 1, 2)
+    buy_probability: float = 0.5
+    price_offset_levels: tuple[int, ...] = (0, 1, 2)
     price_offset_probabilities: tuple[float, ...] = (0.5, 0.3, 0.2)
     min_quantity: float = 1.0
     max_quantity: float = 10.0
@@ -18,71 +19,51 @@ class ArrivalProcessConfig:
     def __post_init__(self) -> None:
         if self.events_per_step < 0:
             raise ValueError("events_per_step must be non-negative.")
-        if not self.price_offsets:
-            raise ValueError("price_offsets must not be empty.")
-        if len(self.price_offsets) != len(self.price_offset_probabilities):
-            raise ValueError("price_offsets and price_offset_probabilities must have equal length.")
-        if any(probability < 0 for probability in self.price_offset_probabilities):
-            raise ValueError("price_offset_probabilities must be non-negative.")
-        if abs(sum(self.price_offset_probabilities) - 1.0) > 1e-9:
-            raise ValueError("price_offset_probabilities must sum to 1.")
+        _require_probability(self.buy_probability, "buy_probability")
+        _require_matching_weights(self.price_offset_levels, self.price_offset_probabilities, "price offsets")
         if self.min_quantity <= 0 or self.max_quantity <= 0:
-            raise ValueError("arrival quantities must be positive.")
+            raise ValueError("min_quantity and max_quantity must be positive.")
         if self.min_quantity > self.max_quantity:
             raise ValueError("min_quantity must be less than or equal to max_quantity.")
 
 
 @dataclass(frozen=True)
 class CancellationProcessConfig:
-    """Config for synthetic cancellations."""
+    """Controls exogenous order cancellation behavior."""
 
     events_per_step: int = 2
-    cancel_probability: float = 0.5
-    partial_cancel_ratio: float = 0.5
+    cancel_partial_probability: float = 0.5
+    partial_cancel_fraction: float = 0.5
 
     def __post_init__(self) -> None:
         if self.events_per_step < 0:
             raise ValueError("events_per_step must be non-negative.")
-        if not 0.0 <= self.cancel_probability <= 1.0:
-            raise ValueError("cancel_probability must be between 0 and 1.")
-        if not 0.0 < self.partial_cancel_ratio <= 1.0:
-            raise ValueError("partial_cancel_ratio must be in the interval (0, 1].")
+        _require_probability(self.cancel_partial_probability, "cancel_partial_probability")
+        if not 0 < self.partial_cancel_fraction <= 1:
+            raise ValueError("partial_cancel_fraction must be in the interval (0, 1].")
 
 
 @dataclass(frozen=True)
 class LatencyModelConfig:
-    """Config for gateway and exchange latency sampling."""
+    """Controls gateway and exchange latency for synthetic events."""
 
-    gateway_min_us: int = 50
-    gateway_max_us: int = 250
-    exchange_min_us: int = 100
-    exchange_max_us: int = 500
+    gateway_latency_us: tuple[int, int] = (50, 150)
+    exchange_latency_us: tuple[int, int] = (100, 300)
 
     def __post_init__(self) -> None:
-        for field_name in [
-            "gateway_min_us",
-            "gateway_max_us",
-            "exchange_min_us",
-            "exchange_max_us",
-        ]:
-            if getattr(self, field_name) < 0:
-                raise ValueError(f"{field_name} must be non-negative.")
-        if self.gateway_min_us > self.gateway_max_us:
-            raise ValueError("gateway_min_us must be less than or equal to gateway_max_us.")
-        if self.exchange_min_us > self.exchange_max_us:
-            raise ValueError("exchange_min_us must be less than or equal to exchange_max_us.")
+        _require_latency_range(self.gateway_latency_us, "gateway_latency_us")
+        _require_latency_range(self.exchange_latency_us, "exchange_latency_us")
 
 
 @dataclass(frozen=True)
 class BookInitializationConfig:
-    """Config for initial synthetic book shape."""
+    """Controls synthetic initial depth construction."""
 
     mid_price: float = 100.0
     tick_size: float = 0.5
     levels_per_side: int = 3
-    base_quantity: float = 10.0
-    quantity_step: float = 2.0
-    imbalance_ratio: float = 1.0
+    visible_quantity: float = 10.0
+    spread_ticks: int = 2
 
     def __post_init__(self) -> None:
         if self.mid_price <= 0:
@@ -91,9 +72,38 @@ class BookInitializationConfig:
             raise ValueError("tick_size must be positive.")
         if self.levels_per_side <= 0:
             raise ValueError("levels_per_side must be positive.")
-        if self.base_quantity <= 0:
-            raise ValueError("base_quantity must be positive.")
-        if self.quantity_step < 0:
-            raise ValueError("quantity_step must be non-negative.")
-        if self.imbalance_ratio <= 0:
-            raise ValueError("imbalance_ratio must be positive.")
+        if self.visible_quantity <= 0:
+            raise ValueError("visible_quantity must be positive.")
+        if self.spread_ticks <= 0:
+            raise ValueError("spread_ticks must be positive.")
+
+
+def _require_probability(value: float, label: str) -> None:
+    """Validate a probability-like value."""
+    if not 0.0 <= float(value) <= 1.0:
+        raise ValueError(f"{label} must be between 0 and 1, got {value!r}.")
+
+
+def _require_matching_weights(levels: tuple[int, ...], weights: tuple[float, ...], label: str) -> None:
+    """Validate paired categorical weights."""
+    if not levels:
+        raise ValueError(f"{label} must contain at least one level.")
+    if len(levels) != len(weights):
+        raise ValueError(f"{label} levels and probabilities must have the same length.")
+    if any(level < 0 for level in levels):
+        raise ValueError(f"{label} levels must be non-negative.")
+    if any(weight < 0 for weight in weights):
+        raise ValueError(f"{label} probabilities must be non-negative.")
+    if sum(weights) <= 0:
+        raise ValueError(f"{label} probabilities must sum to a positive value.")
+
+
+def _require_latency_range(value: tuple[int, int], label: str) -> None:
+    """Validate inclusive integer latency range."""
+    if len(value) != 2:
+        raise ValueError(f"{label} must be a two-item tuple.")
+    lo, hi = value
+    if lo < 0 or hi < 0:
+        raise ValueError(f"{label} values must be non-negative.")
+    if lo > hi:
+        raise ValueError(f"{label} lower bound must be less than or equal to upper bound.")

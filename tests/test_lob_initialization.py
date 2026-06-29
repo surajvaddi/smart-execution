@@ -7,28 +7,28 @@ from src.lob_generators import build_initial_book_snapshot, seed_imbalanced_dept
 from src.lob_simulator_config import BookInitializationConfig
 
 
-def ts() -> pd.Timestamp:
-    return pd.Timestamp("2026-01-02 10:00:00", tz="America/New_York")
+def ts(label: str) -> pd.Timestamp:
+    return pd.Timestamp(label, tz="America/New_York")
 
 
-def test_seed_symmetric_depth_builds_balanced_book() -> None:
-    book = seed_symmetric_depth("XYZ", ts(), BookInitializationConfig())
+def test_seed_symmetric_depth_builds_sorted_levels() -> None:
+    config = BookInitializationConfig(mid_price=100.0, tick_size=0.5, levels_per_side=3, visible_quantity=10.0)
+    bids = seed_symmetric_depth("XYZ", ts("2026-01-02 10:00:00"), config, side="buy")
+    asks = seed_symmetric_depth("XYZ", ts("2026-01-02 10:00:00"), config, side="sell")
 
-    assert [level.price for level in book.bids] == pytest.approx([99.5, 99.0, 98.5])
-    assert [level.price for level in book.asks] == pytest.approx([100.5, 101.0, 101.5])
-    assert book.bids[0].orders[0].visible_quantity == pytest.approx(book.asks[0].orders[0].visible_quantity)
-
-
-def test_seed_imbalanced_depth_uses_imbalance_ratio() -> None:
-    book = seed_imbalanced_depth("XYZ", ts(), BookInitializationConfig(imbalance_ratio=2.0))
-
-    assert book.bids[0].orders[0].visible_quantity == pytest.approx(20.0)
-    assert book.asks[0].orders[0].visible_quantity == pytest.approx(5.0)
+    assert [level.price for level in bids] == pytest.approx([99.5, 99.0, 98.5])
+    assert [level.price for level in asks] == pytest.approx([100.5, 101.0, 101.5])
 
 
-def test_build_initial_book_snapshot_supports_both_modes() -> None:
-    symmetric = build_initial_book_snapshot("XYZ", ts(), BookInitializationConfig(), mode="symmetric")
-    imbalanced = build_initial_book_snapshot("XYZ", ts(), BookInitializationConfig(imbalance_ratio=1.5), mode="imbalanced")
+def test_build_initial_book_snapshot_returns_both_sides() -> None:
+    snapshot = build_initial_book_snapshot("XYZ", ts("2026-01-02 10:00:00"), BookInitializationConfig())
 
-    assert symmetric.instrument_id == "XYZ"
-    assert imbalanced.instrument_id == "XYZ"
+    assert snapshot.best_bid == pytest.approx(99.5)
+    assert snapshot.best_ask == pytest.approx(100.5)
+
+
+def test_seed_imbalanced_depth_scales_sides() -> None:
+    snapshot = seed_imbalanced_depth("XYZ", ts("2026-01-02 10:00:00"), BookInitializationConfig(), buy_multiplier=2.0, sell_multiplier=0.5)
+
+    assert snapshot.bids[0].orders[0].visible_quantity == pytest.approx(20.0)
+    assert snapshot.asks[0].orders[0].visible_quantity == pytest.approx(5.0)

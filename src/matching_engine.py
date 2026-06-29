@@ -255,23 +255,6 @@ def is_hidden_order(order: RestingOrder) -> bool:
     return bool(order.reserve_quantity > 0)
 
 
-def refresh_iceberg_peak(order: RestingOrder, peak_size: float) -> RestingOrder:
-    """Expose a new visible peak from reserve quantity."""
-    if peak_size <= 0:
-        raise ValueError("peak_size must be positive.")
-    if order.reserve_quantity <= 0:
-        return order
-
-    new_visible = min(peak_size, order.reserve_quantity)
-    new_reserve = order.reserve_quantity - new_visible
-    return replace(order, visible_quantity=new_visible, reserve_quantity=new_reserve)
-
-
-def is_hidden_order(order: RestingOrder) -> bool:
-    """Return whether an order currently has reserve quantity."""
-    return bool(order.reserve_quantity > 0)
-
-
 def _consume_passive_order(
     book: BookSnapshot,
     passive_order_id: str,

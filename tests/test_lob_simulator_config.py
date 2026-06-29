@@ -2,29 +2,27 @@ from __future__ import annotations
 
 import pytest
 
-from src.lob_simulator_config import (
-    ArrivalProcessConfig,
-    BookInitializationConfig,
-    CancellationProcessConfig,
-    LatencyModelConfig,
-)
+from src.lob_simulator_config import ArrivalProcessConfig, BookInitializationConfig, CancellationProcessConfig, LatencyModelConfig
 
 
-def test_arrival_process_config_validates_probability_sum() -> None:
-    with pytest.raises(ValueError, match="sum to 1"):
-        ArrivalProcessConfig(price_offset_probabilities=(0.4, 0.4, 0.4))
+def test_arrival_process_config_validates_inputs() -> None:
+    config = ArrivalProcessConfig()
+    assert config.events_per_step == 4
+
+    with pytest.raises(ValueError, match="buy_probability"):
+        ArrivalProcessConfig(buy_probability=1.5)
 
 
-def test_cancellation_process_config_validates_probability() -> None:
-    with pytest.raises(ValueError, match="between 0 and 1"):
-        CancellationProcessConfig(cancel_probability=1.5)
+def test_cancellation_config_validates_fraction() -> None:
+    with pytest.raises(ValueError, match="partial_cancel_fraction"):
+        CancellationProcessConfig(partial_cancel_fraction=0.0)
 
 
-def test_latency_model_config_validates_bounds() -> None:
-    with pytest.raises(ValueError, match="gateway_min_us"):
-        LatencyModelConfig(gateway_min_us=10, gateway_max_us=1)
+def test_latency_model_config_validates_ranges() -> None:
+    with pytest.raises(ValueError, match="lower bound"):
+        LatencyModelConfig(gateway_latency_us=(10, 5))
 
 
-def test_book_initialization_config_validates_positive_values() -> None:
-    with pytest.raises(ValueError, match="mid_price"):
-        BookInitializationConfig(mid_price=0.0)
+def test_book_initialization_config_requires_positive_values() -> None:
+    with pytest.raises(ValueError, match="tick_size"):
+        BookInitializationConfig(tick_size=0.0)

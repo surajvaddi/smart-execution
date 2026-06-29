@@ -106,6 +106,16 @@ class BookSnapshot:
         _validate_side_levels(self.bids, "buy", descending=True)
         _validate_side_levels(self.asks, "sell", descending=False)
 
+    @property
+    def best_bid(self) -> float | None:
+        """Return best bid price when present."""
+        return None if not self.bids else float(self.bids[0].price)
+
+    @property
+    def best_ask(self) -> float | None:
+        """Return best ask price when present."""
+        return None if not self.asks else float(self.asks[0].price)
+
 
 @dataclass(frozen=True)
 class TradePrint:
