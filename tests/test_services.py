@@ -7,6 +7,8 @@ import pytest
 from src.dataset_metadata import get_dataset_metadata
 from src.backtester import Backtester
 from src.rl_env import RL_STRATEGY_NAME
+from src.strategies_adaptive_participation import AdaptiveParticipationStrategy
+from src.strategies_is import ImplementationShortfallStrategy
 from src.strategies import AdaptiveModelWeights, AdaptiveStrategy
 from src.services import (
     filter_market_data,
@@ -19,8 +21,10 @@ from src.services import (
     run_monte_carlo_grid,
     run_rl_backtest,
     run_signal_research,
+    run_strategy_comparison,
     volume_curve,
 )
+from src.strategies import POVStrategy, TWAPStrategy, VWAPStrategy
 from test_rl_env import sample_market_data
 
 
@@ -120,6 +124,37 @@ def test_rl_and_signal_services_are_callable() -> None:
     assert set(rl_results["strategy"]) == {RL_STRATEGY_NAME}
     assert {"evaluation", "decay", "summary"} == set(signals.__dataclass_fields__)
     assert not signals.evaluation.empty
+
+
+def test_strategy_comparison_service_returns_ranked_outputs() -> None:
+    comparison = run_strategy_comparison(
+        sample_market_data(),
+        strategies=[
+            TWAPStrategy(),
+            VWAPStrategy(),
+            POVStrategy(),
+            AdaptiveStrategy(),
+            ImplementationShortfallStrategy(),
+            AdaptiveParticipationStrategy(),
+        ],
+        max_orders_per_ticker=1,
+        bootstrap_pairs=[("TWAP", "VWAP")],
+        n_bootstrap=100,
+        random_seed=7,
+    )
+
+    assert {"strategy", "rank", "mean"}.issubset(comparison.summary.columns)
+    assert set(comparison.results["strategy"]) == {
+        "TWAP",
+        "VWAP",
+        "POV",
+        "Adaptive",
+        "ImplementationShortfall",
+        "AdaptiveParticipation",
+    }
+    assert {"strategy", "tail_threshold", "tail_mean"}.issubset(comparison.tail_risk.columns)
+    assert len(comparison.bootstrap_differences) == 1
+    assert comparison.bootstrap_differences.iloc[0]["left_strategy"] == "TWAP"
 
 
 def test_backtester_run_dispatches_in_memory_data() -> None:

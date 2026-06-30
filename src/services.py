@@ -38,6 +38,11 @@ from src.signals import (
     signal_decay_table,
     signal_quality_summary,
 )
+from src.strategy_benchmarks import (
+    bootstrap_strategy_difference,
+    compare_strategy_results,
+    strategy_tail_risk_summary,
+)
 from src.strategies import AdaptiveModelWeights, AdaptiveStrategy, ExecutionStrategy
 
 
@@ -65,6 +70,16 @@ class SignalResearchResult:
     evaluation: pd.DataFrame
     decay: pd.DataFrame
     summary: pd.DataFrame
+
+
+@dataclass(frozen=True)
+class StrategyComparisonResult:
+    """Detailed strategy results and statistical comparison outputs."""
+
+    results: pd.DataFrame
+    summary: pd.DataFrame
+    tail_risk: pd.DataFrame
+    bootstrap_differences: pd.DataFrame
 
 
 def load_processed_data(
@@ -276,6 +291,52 @@ def run_signal_research(
     decay = signal_decay_table(evaluation)
     summary = signal_quality_summary(evaluation)
     return SignalResearchResult(evaluation=evaluation, decay=decay, summary=summary)
+
+
+def run_strategy_comparison(
+    data: pd.DataFrame,
+    strategies: list[ExecutionStrategy],
+    max_orders_per_ticker: int | None = 20,
+    metric: str = "implementation_shortfall_bps",
+    lower_is_better: bool = True,
+    bootstrap_pairs: list[tuple[str, str]] | None = None,
+    n_bootstrap: int = 1_000,
+    random_seed: int = 42,
+) -> StrategyComparisonResult:
+    """Run a backtest and return statistical comparison tables for strategy families."""
+    featured = prepare_features(data)
+    backtester = _backtester_for_data(
+        featured,
+        strategies=strategies,
+        max_orders_per_ticker=max_orders_per_ticker,
+    )
+    results = backtester.run_single_ticker_data(featured)
+    summary = compare_strategy_results(
+        results,
+        metric=metric,
+        lower_is_better=lower_is_better,
+    )
+    tail_risk = strategy_tail_risk_summary(results, metric=metric)
+
+    bootstrap_rows = []
+    for left_strategy, right_strategy in bootstrap_pairs or []:
+        bootstrap_rows.append(
+            bootstrap_strategy_difference(
+                results,
+                left_strategy=left_strategy,
+                right_strategy=right_strategy,
+                metric=metric,
+                n_bootstrap=n_bootstrap,
+                random_seed=random_seed,
+            )
+        )
+
+    return StrategyComparisonResult(
+        results=results,
+        summary=summary,
+        tail_risk=tail_risk,
+        bootstrap_differences=pd.DataFrame(bootstrap_rows),
+    )
 
 
 def generate_plots(
