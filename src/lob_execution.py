@@ -223,6 +223,61 @@ def cancel_execution_child_order(
     return updated_book, updated_state
 
 
+def cancel_replace_child_order(
+    book: BookSnapshot,
+    state: ChildOrderState,
+    updated_at: pd.Timestamp,
+    replacement_price: float,
+) -> tuple[BookSnapshot, ChildOrderState, list[TradePrint]]:
+    """Cancel a resting child order and repost the remainder at a new price."""
+    canceled_book, canceled_state = cancel_execution_child_order(
+        book,
+        state,
+        updated_at=updated_at,
+    )
+    replacement_state = update_queue_position(
+        canceled_state,
+        queue_position=None,
+        updated_at=updated_at,
+        remaining_quantity=state.remaining_quantity,
+    )
+    return submit_limit_execution_child(
+        canceled_book,
+        replacement_state,
+        price=replacement_price,
+    )
+
+
+def cancel_stale_child_orders(
+    book: BookSnapshot,
+    child_states: list[ChildOrderState],
+    updated_at: pd.Timestamp,
+    stale_after: pd.Timedelta,
+) -> tuple[BookSnapshot, list[ChildOrderState]]:
+    """Cancel still-resting child orders whose last update is older than a threshold."""
+    if updated_at.tzinfo is None:
+        raise ValueError("updated_at must be timezone-aware.")
+    if stale_after <= pd.Timedelta(0):
+        raise ValueError("stale_after must be positive.")
+
+    next_book = book
+    next_states: list[ChildOrderState] = []
+    for state in child_states:
+        age = updated_at - state.last_updated_at
+        should_cancel = state.remaining_quantity > 0 and state.queue_position is not None and age >= stale_after
+        if should_cancel:
+            next_book, canceled_state = cancel_execution_child_order(
+                next_book,
+                state,
+                updated_at=updated_at,
+            )
+            next_states.append(canceled_state)
+            continue
+        next_states.append(state)
+    synced_states = [_sync_child_state_to_book(next_book, state, updated_at) for state in next_states]
+    return next_book, synced_states
+
+
 def build_child_execution_report(
     initial_state: ChildOrderState,
     updated_state: ChildOrderState,
@@ -343,3 +398,21 @@ def _liquidity_flags(state: ChildOrderState, filled_quantity: float) -> tuple[bo
     if "aggressive" in state.placement_style:
         return False, True
     return True, False
+
+
+def _sync_child_state_to_book(
+    book: BookSnapshot,
+    state: ChildOrderState,
+    updated_at: pd.Timestamp,
+) -> ChildOrderState:
+    """Refresh queue position and resting quantity for a child order from the book."""
+    queue_position = _queue_position_for_order(book, state.child_order_id)
+    remaining_quantity = _remaining_quantity_for_order(book, state.child_order_id)
+    if queue_position == state.queue_position and remaining_quantity == state.remaining_quantity:
+        return state
+    return update_queue_position(
+        state,
+        queue_position=queue_position,
+        updated_at=updated_at,
+        remaining_quantity=remaining_quantity,
+    )
