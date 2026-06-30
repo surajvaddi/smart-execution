@@ -42,6 +42,20 @@ EXTENDED_PROXY_COLUMNS = [
 ]
 
 
+def attach_alpha_model_score(
+    data: pd.DataFrame,
+    scores: pd.Series | list[float] | np.ndarray,
+    score_column: str = "alpha_model_score",
+) -> pd.DataFrame:
+    """Attach model scores to a feature frame without replacing heuristic alpha_signal."""
+    if len(scores) != len(data):
+        raise ValueError("scores length must match the number of rows in data.")
+
+    enriched = data.copy()
+    enriched[score_column] = list(scores)
+    return enriched
+
+
 def validate_base_columns(df: pd.DataFrame) -> None:
     """Validate that the input data contains the cleaned data-loader schema."""
     missing = [col for col in BASE_COLUMNS if col not in df.columns]

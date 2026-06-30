@@ -15,7 +15,7 @@ import pandas as pd
 from src.backtester import Backtester, default_strategies
 from src.dataset_metadata import attach_dataset_metadata, infer_dataset_metadata
 from src.execution import generate_parent_orders, parent_orders_to_frame, parse_time
-from src.features import FEATURE_COLUMNS, add_microstructure_features, estimate_volume_curve
+from src.features import FEATURE_COLUMNS, add_microstructure_features, attach_alpha_model_score, estimate_volume_curve
 from src.fill_simulator import (
     DEFAULT_FILL_MODEL,
     DEFAULT_RANDOM_SEED,
@@ -158,6 +158,15 @@ def prepare_features(
     if all(col in data.columns for col in FEATURE_COLUMNS) and not include_extended_proxies:
         return data.copy()
     return add_microstructure_features(data, include_extended_proxies=include_extended_proxies)
+
+
+def attach_model_scores(
+    data: pd.DataFrame,
+    scores: pd.Series | list[float],
+    score_column: str = "alpha_model_score",
+) -> pd.DataFrame:
+    """Attach alpha model scores to an execution-ready feature frame."""
+    return attach_alpha_model_score(data, scores=scores, score_column=score_column)
 
 
 def volume_curve(data: pd.DataFrame) -> pd.DataFrame:
