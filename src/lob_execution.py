@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 import pandas as pd
 
 from src.lob_types import BookSnapshot, RestingOrder, TradePrint
-from src.matching_engine import execute_market_order, submit_limit_order
+from src.matching_engine import cancel_order, execute_market_order, submit_limit_order
 
 
 @dataclass(frozen=True)
@@ -168,6 +168,37 @@ def submit_limit_execution_child(
     return updated_book, updated_state, prints
 
 
+def cancel_execution_child_order(
+    book: BookSnapshot,
+    state: ChildOrderState,
+    updated_at: pd.Timestamp,
+    cancel_quantity: float | None = None,
+) -> tuple[BookSnapshot, ChildOrderState]:
+    """Cancel all or part of a resting child order and sync queue-aware state."""
+    if updated_at.tzinfo is None:
+        raise ValueError("updated_at must be timezone-aware.")
+    if updated_at < state.last_updated_at:
+        raise ValueError("updated_at must be on or after the prior last_updated_at.")
+    if cancel_quantity is not None and cancel_quantity <= 0:
+        raise ValueError("cancel_quantity must be positive when provided.")
+
+    updated_book = cancel_order(
+        book,
+        state.child_order_id,
+        cancel_quantity=cancel_quantity,
+        timestamp=updated_at,
+    )
+    queue_position = _queue_position_for_order(updated_book, state.child_order_id)
+    remaining_quantity = _remaining_quantity_for_order(updated_book, state.child_order_id)
+    updated_state = update_queue_position(
+        state,
+        queue_position=queue_position,
+        updated_at=updated_at,
+        remaining_quantity=remaining_quantity,
+    )
+    return updated_book, updated_state
+
+
 def _queue_position_for_order(book: BookSnapshot, order_id: str) -> int | None:
     """Return the current queue slot for one resting order."""
     for side_levels in [book.bids, book.asks]:
@@ -176,3 +207,13 @@ def _queue_position_for_order(book: BookSnapshot, order_id: str) -> int | None:
                 if order.order_id == order_id:
                     return queue_position
     return None
+
+
+def _remaining_quantity_for_order(book: BookSnapshot, order_id: str) -> float:
+    """Return the current total resting quantity for one order, or zero if absent."""
+    for side_levels in [book.bids, book.asks]:
+        for level in side_levels:
+            for order in level.orders:
+                if order.order_id == order_id:
+                    return order.total_quantity
+    return 0.0
