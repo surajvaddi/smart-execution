@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 
 import pandas as pd
 
-from src.lob_types import BookSnapshot, RestingOrder, TradePrint
+from src.lob_types import BookSnapshot, ExecutionReport, RestingOrder, TradePrint
 from src.matching_engine import cancel_order, execute_market_order, submit_limit_order
 
 
@@ -223,6 +223,68 @@ def cancel_execution_child_order(
     return updated_book, updated_state
 
 
+def build_child_execution_report(
+    initial_state: ChildOrderState,
+    updated_state: ChildOrderState,
+    prints: list[TradePrint],
+    timestamp: pd.Timestamp,
+    execution_id: str | None = None,
+    execution_venue: str = "synthetic_primary",
+    simulation_model: str = "lob_backtest",
+    data_basis: str = "synthetic",
+    latency_us: int | None = None,
+) -> ExecutionReport:
+    """Build one normalized execution report from a child-order state transition."""
+    if timestamp.tzinfo is None:
+        raise ValueError("timestamp must be timezone-aware.")
+
+    filled_quantity = float(initial_state.remaining_quantity - updated_state.remaining_quantity)
+    if filled_quantity < 0:
+        raise ValueError("updated_state cannot have more remaining quantity than initial_state.")
+
+    fill_price = None
+    if filled_quantity > 0:
+        total_notional = sum(print_.price * print_.quantity for print_ in prints)
+        total_quantity = sum(print_.quantity for print_ in prints)
+        if total_quantity <= 0:
+            raise ValueError("prints must include positive quantity when a fill occurred.")
+        fill_price = float(total_notional / total_quantity)
+
+    if updated_state.remaining_quantity == 0:
+        fill_status = "filled"
+    elif filled_quantity > 0:
+        fill_status = "partial"
+    else:
+        fill_status = "unfilled"
+
+    maker_flag, taker_flag = _liquidity_flags(initial_state, filled_quantity)
+    book_level = fill_price if fill_price is not None else None
+
+    return ExecutionReport(
+        execution_id=execution_id or f"{initial_state.child_order_id}_report",
+        instrument_id=initial_state.instrument_id,
+        timestamp=timestamp,
+        order_id=initial_state.child_order_id,
+        parent_order_id=initial_state.parent_order_id,
+        child_order_id=initial_state.child_order_id,
+        side=initial_state.side,
+        submitted_quantity=initial_state.submitted_quantity,
+        filled_quantity=filled_quantity,
+        remaining_quantity=updated_state.remaining_quantity,
+        fill_price=fill_price,
+        fill_status=fill_status,
+        execution_venue=execution_venue,
+        simulation_model=simulation_model,
+        data_basis=data_basis,
+        queue_position_at_submit=initial_state.queue_position,
+        queue_position_at_fill=updated_state.queue_position,
+        latency_us=latency_us,
+        book_level=book_level,
+        maker_flag=maker_flag,
+        taker_flag=taker_flag,
+    )
+
+
 def _queue_position_for_order(book: BookSnapshot, order_id: str) -> int | None:
     """Return the current queue slot for one resting order."""
     for side_levels in [book.bids, book.asks]:
@@ -270,3 +332,14 @@ def _midpoint_limit_price(book: BookSnapshot) -> float:
     if book.best_bid is None or book.best_ask is None:
         raise ValueError("cannot place midpoint order without both best bid and best ask.")
     return float((book.best_bid + book.best_ask) / 2.0)
+
+
+def _liquidity_flags(state: ChildOrderState, filled_quantity: float) -> tuple[bool | None, bool | None]:
+    """Infer simple maker/taker flags from placement style for current LOB slices."""
+    if filled_quantity <= 0:
+        return None, None
+    if state.placement_style == "market":
+        return False, True
+    if "aggressive" in state.placement_style:
+        return False, True
+    return True, False
