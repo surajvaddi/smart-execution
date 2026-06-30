@@ -112,6 +112,30 @@ def submit_execution_child_order(
     return submit_limit_execution_child(book, state, price=price)
 
 
+def place_passive_child_order(
+    book: BookSnapshot,
+    state: ChildOrderState,
+) -> tuple[BookSnapshot, ChildOrderState, list[TradePrint]]:
+    """Post a child order at the same-side touch without crossing the spread."""
+    return submit_limit_execution_child(book, state, price=_passive_limit_price(book, state.side))
+
+
+def place_aggressive_child_order(
+    book: BookSnapshot,
+    state: ChildOrderState,
+) -> tuple[BookSnapshot, ChildOrderState, list[TradePrint]]:
+    """Post a child order at the opposite-side touch so it crosses immediately."""
+    return submit_limit_execution_child(book, state, price=_aggressive_limit_price(book, state.side))
+
+
+def place_midpoint_child_order(
+    book: BookSnapshot,
+    state: ChildOrderState,
+) -> tuple[BookSnapshot, ChildOrderState, list[TradePrint]]:
+    """Post a child order at the current midpoint between the best bid and ask."""
+    return submit_limit_execution_child(book, state, price=_midpoint_limit_price(book))
+
+
 def submit_market_execution_child(
     book: BookSnapshot,
     state: ChildOrderState,
@@ -217,3 +241,32 @@ def _remaining_quantity_for_order(book: BookSnapshot, order_id: str) -> float:
                 if order.order_id == order_id:
                     return order.total_quantity
     return 0.0
+
+
+def _passive_limit_price(book: BookSnapshot, side: str) -> float:
+    """Resolve the same-side top-of-book price for passive posting."""
+    if side == "buy":
+        if book.best_bid is None:
+            raise ValueError("cannot place passive buy without a best bid.")
+        return book.best_bid
+    if book.best_ask is None:
+        raise ValueError("cannot place passive sell without a best ask.")
+    return book.best_ask
+
+
+def _aggressive_limit_price(book: BookSnapshot, side: str) -> float:
+    """Resolve the opposite-side top-of-book price for aggressive posting."""
+    if side == "buy":
+        if book.best_ask is None:
+            raise ValueError("cannot place aggressive buy without a best ask.")
+        return book.best_ask
+    if book.best_bid is None:
+        raise ValueError("cannot place aggressive sell without a best bid.")
+    return book.best_bid
+
+
+def _midpoint_limit_price(book: BookSnapshot) -> float:
+    """Resolve the midpoint between the current best bid and ask."""
+    if book.best_bid is None or book.best_ask is None:
+        raise ValueError("cannot place midpoint order without both best bid and best ask.")
+    return float((book.best_bid + book.best_ask) / 2.0)
